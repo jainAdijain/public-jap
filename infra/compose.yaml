@@ -1,0 +1,107 @@
+# JAP stack: ui, app, inngest, db, adminer. Every port binds to 127.0.0.1 only.
+# This file is the local stack; live adds infra/compose.release.yaml on top (PRD H2 to H5).
+# Host ports come from JAP_*_PORT in .env (defaults below); inside Docker the ports never change.
+# Ollama is not here: it runs natively on the Mac so it can use the GPU.
+# Run through the Makefile (make start ENV=local|live), which picks the project name
+# (JAP_PROJECT: jap, jap-live) so each environment keeps its own volumes.
+name: jap
+
+# Docker keeps each container's stdout (JAP's JSON log lines, PRD O3), capped at 5 files of
+# 50 MB. `make logs` follows them; warnings and errors are also kept in log_event for 30 days.
+x-logging: &logging
+  driver: local
+  options:
+    max-size: 50m
+    max-file: "5"
+
+services:
+  ui:
+    logging: *logging
+    build:
+      context: ..
+      dockerfile: infra/docker/ui.Dockerfile
+      target: dev
+    ports:
+      - "127.0.0.1:${JAP_UI_PORT:-5173}:5173"
+    environment:
+      # The UI calls /api on its own address; Vite passes it to the app (PRD H2).
+      VITE_API_PROXY: http://app:8000
+    volumes:
+      - ../frontend:/ui
+      - ui_node_modules:/ui/node_modules
+    depends_on:
+      - app
+
+  app:
+    logging: *logging
+    build:
+      context: ..
+      dockerfile: infra/docker/app.Dockerfile
+    ports:
+      - "127.0.0.1:${JAP_API_PORT:-8001}:8000"
+    # Which env file is injected into the container: local reads .env, live reads .env.live.
+    # The Makefile's --env-file only substitutes variables in this file, so it must be named
+    # here too, or live would run on local's settings (JAP_ENV_FILE, set in infra/env/live.env).
+    env_file: ../${JAP_ENV_FILE:-.env}
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-jap}:${POSTGRES_PASSWORD:-jap}@db:5432/${POSTGRES_DB:-jap}
+      INNGEST_DEV: "1"
+      INNGEST_BASE_URL: http://inngest:8288
+      # The URL Inngest calls back, even when a sync is started from the Mac's browser.
+      INNGEST_SERVE_ORIGIN: http://app:8000
+      JAP_SEED_DIR: /seed
+      CORS_ORIGINS: '["http://localhost:${JAP_UI_PORT:-5173}"]'
+    volumes:
+      - ../backend:/app
+      - ../seed:/seed:ro
+      # Each environment keeps its own data folder (local: data, live: data-live).
+      - ../${JAP_DATA_HOST_DIR:-data}:/data
+    extra_hosts:
+      # Reach Ollama on the Mac. Docker Desktop provides this name; the line keeps Linux working too.
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  inngest:
+    logging: *logging
+    image: inngest/inngest:v1.49.0
+    command: inngest dev -u http://app:8000/api/inngest --no-discovery
+    ports:
+      - "127.0.0.1:${JAP_INNGEST_PORT:-8290}:8288"
+    depends_on:
+      - app
+
+  db:
+    logging: *logging
+    image: pgvector/pgvector:pg16
+    ports:
+      - "127.0.0.1:${JAP_DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jap}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jap}
+      POSTGRES_DB: ${POSTGRES_DB:-jap}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  adminer:
+    logging: *logging
+    image: adminer:5
+    # Listen on IPv4; the image default ([::]) fails where Docker has IPv6 turned off.
+    command: ["php", "-S", "0.0.0.0:8080", "-t", "/var/www/html"]
+    ports:
+      - "127.0.0.1:${JAP_ADMINER_PORT:-8080}:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    depends_on:
+      - db
+
+volumes:
+  db_data:
+  ui_node_modules:

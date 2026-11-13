@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Manager</title></head><body>
+<!-- Like Greenhouse when it suspects an automated browser: Submit shows boxes for a security
+     code it emailed, and nothing is posted until the code is typed in. -->
+<form id="application-form" method="post" action="/submit" enctype="multipart/form-data">
+  <label for="first_name">First Name<span>*</span></label>
+  <input type="text" id="first_name" name="first_name" aria-required="true">
+  <div id="code" hidden>
+    <p>A verification code was sent to your email. To submit your application, enter the 8-character code here.</p>
+    <label>Security code</label>
+    <span id="boxes"></span>
+    <input type="hidden" id="security_code" name="security_code">
+    <p id="wrong" hidden>That security code is not right.</p>
+  </div>
+  <button type="submit">Submit application</button>
+</form>
+<script>
+  // The first Submit shows the boxes; a later Submit with the right code posts the form.
+  const CODE = 'Ab3dE5fG';
+  document.querySelector('form').addEventListener('submit', (e) => {
+    const boxes = document.getElementById('boxes');
+    if (!boxes.children.length) {
+      e.preventDefault();
+      for (let i = 0; i < 8; i++) {
+        const b = document.createElement('input');
+        b.maxLength = 1;
+        boxes.appendChild(b);
+      }
+      document.getElementById('code').hidden = false;
+      return;
+    }
+    const typed = [...boxes.children].map((b) => b.value).join('');
+    if (typed !== CODE) {
+      e.preventDefault();
+      document.getElementById('wrong').hidden = false;
+      return;
+    }
+    document.getElementById('security_code').value = typed;
+  });
+</script></body></html>
