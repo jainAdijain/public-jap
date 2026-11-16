@@ -37,7 +37,7 @@ TUNNEL_ENV := infra/tunnel/.env.tunnel
 TUNNEL := docker compose --env-file $(TUNNEL_ENV) -f infra/tunnel/compose.yaml
 
 .DEFAULT_GOAL := help
-.PHONY: help env tunnel-start tunnel-stop tunnel-status mac-wake start stop restart reset clean logs ps migrate seed test test-app test-ui test-agents test-host setup-host hooks qa backup restore close-unfollowed form-check health-check errors two-step-off sign-out-all set-password email-test code-mail-check ollama-check llm-check demo demo-clear
+.PHONY: help env tunnel-start tunnel-stop tunnel-status mac-wake start stop restart reset clean logs ps migrate seed test test-app test-ui test-agents test-host setup-host hooks worktree worktree-list worktree-remove qa backup restore close-unfollowed form-check health-check errors two-step-off sign-out-all set-password email-test code-mail-check ollama-check llm-check demo demo-clear
 
 help: ## List the targets
 	@grep -hE '^[a-z-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-13s %s\n", $$1, $$2}'
@@ -123,6 +123,16 @@ test-agents: ## The coding-agent guards: hook self-test, and nothing private is 
 hooks: ## Turn on the pre-commit check for this clone (git config core.hooksPath .githooks)
 	git config core.hooksPath .githooks
 
+worktree: ## A sibling worktree with its own stack, for an agent on a branch: make worktree NAME=<name> [BRANCH=<branch>]
+	@infra/scripts/worktree.sh "$(NAME)" $(BRANCH)
+
+worktree-list: ## The worktrees and the ports each one's stack uses
+	@git worktree list
+	@grep -s -H '^JAP_UI_PORT=' ../$(notdir $(CURDIR))-*/.env 2>/dev/null || true
+
+worktree-remove: ## Remove a worktree, its stack and its data; the branch is kept (asks first)
+	@infra/scripts/worktree-remove.sh "$(NAME)"
+
 qa: ## Dedup QA set: place ~100 labelled job pairs and print the accuracy
 	$(COMPOSE) exec app pytest -q -s tests/test_dedup_qa.py
 
@@ -170,13 +180,15 @@ llm-check: ## One test call to each OpenRouter model (needs OPENROUTER_API_KEY i
 	$(COMPOSE) exec app python -m llm.check
 
 ollama-check: ## Check that Ollama answers on the Mac and has the embedder pulled
-	@if ! curl -fsS --max-time 2 $(OLLAMA_URL)/api/tags > /tmp/jap-ollama-tags 2>/dev/null; then \
+	@tags=$$(mktemp); \
+	if ! curl -fsS --max-time 2 $(OLLAMA_URL)/api/tags > $$tags 2>/dev/null; then \
 		echo "WARNING: Ollama is not answering on $(OLLAMA_URL). Start it with: ollama serve (or open the Ollama app)"; \
-	elif ! grep -q '"$(EMBED_MODEL)' /tmp/jap-ollama-tags; then \
+	elif ! grep -q '"$(EMBED_MODEL)' $$tags; then \
 		echo "WARNING: Ollama is running but $(EMBED_MODEL) is not pulled. Run: ollama pull $(EMBED_MODEL)"; \
 	else \
 		echo "Ollama OK ($(EMBED_MODEL) ready)"; \
-	fi
+	fi; \
+	rm -f $$tags
 
 # ---- Hosting (PRD H1 to H8; README, Hosting) ----
 

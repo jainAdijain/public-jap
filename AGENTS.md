@@ -62,6 +62,34 @@ other files only make a harness read this one, or enforce what it says.
 - Personal overrides go in `AGENTS.local.md`, `.devin/config.local.json` or
   `.claude/settings.local.json`, all gitignored.
 
+### Several agents at once
+
+Each agent gets its own worktree; none of them share this checkout.
+
+```
+make worktree NAME=dedup-fix     # ../public-jap-dedup-fix on branch dedup-fix, with its .env
+make worktree-list               # the worktrees and the ports each one's stack uses
+make worktree-remove NAME=...    # its stack, volumes and checkout; the branch is kept
+```
+
+A worktree's stack is separate in every way that matters: Docker project `jap-<name>`, its own
+database volume, its own `data/`, and ports in the 55xx/85xx/86xx/57xx/87xx range that neither
+local nor live uses. `make worktree` copies the keys from `.env` by writing them, and forces
+`JAP_SUBMIT_ENABLED=false` and `JAP_ALERTS_ENABLED=false`, so a worktree never submits an
+application and never sends an alert email.
+
+- **Two agents must not share one checkout.** `tests/conftest.py` drops and recreates
+  `<db>_test` at the start of a session, so two `make test-app` runs against one stack delete
+  each other's database half way through.
+- **On a branch, leave the shared files alone.** Do not take a `JAP-N` id and do not bump the
+  version: two branches always pick the same next number, and every one of them edits the same
+  four lines. Describe the defect or the change in the PR instead; Aditya, or one agent at
+  merge time, assigns the id and the version. A branch that is the only one in flight can do
+  both as usual.
+- Two stacks on one Mac still share Ollama, which only embeds, and the OpenRouter account.
+  The spend cap is a sum over each database's own `llm_call` rows (`llm/spend.py`), so every
+  worktree gets a fresh cap of its own and the real monthly bill is the total across them.
+
 ## Layout
 
 ```
@@ -230,7 +258,8 @@ still passes locally.
 `BUGS.md` is the numbered list of known defects, in one serial order that is never renumbered
 and never reused. Read it at the start of a session, before reporting anything as new.
 
-Aditya says whether something is a **bug** or an **issue**; you give it the next free `JAP-N`,
+Aditya says whether something is a **bug** or an **issue**; you give it the next free `JAP-N`
+(unless other agents are working in parallel, see Several agents at once),
 write it up well enough to act on weeks later (symptom, where it shows, root cause if known,
 the files involved, what the fix would be) and keep the status current. The `JAP-` prefix
 avoids GitHub turning a bare `#2` into a link to pull request 2.
@@ -240,7 +269,8 @@ JAP-2)` — and close the entry in the same commit that fixes it.
 
 ## Releases
 
-A user-visible change gets a version bump in three places, kept in step:
+A user-visible change gets a version bump in three places, kept in step (not on a branch that
+shares the queue with other agents, see Several agents at once):
 
 1. the `**Version X.Y.Z (title), D Mon YYYY.**` line at the top of `README.md`,
 2. a new row at the top of the Version history table in `README.md`,
