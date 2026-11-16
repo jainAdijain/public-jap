@@ -480,6 +480,7 @@ There is no promotion step: live runs whatever this checkout builds.
 | `make migrate` | `alembic upgrade head` in the app container |
 | `make seed` | Load `seed/companies.yaml` and `seed/skills.yaml` |
 | `make test` | ruff, mypy, pytest for app; lint and build for ui; the coding-agent guards (`make test-agents`) |
+| `make setup-host` / `make test-host` | The same checks without the Docker stack, for cloud sandboxes: set up `.venv`, Chromium, `node_modules` and a Postgres once, then run them |
 | `make hooks` | Turn on the pre-commit check for this clone: refuses secrets files, `docs/`, `data/` and anything that looks like a key |
 | `make backup` / `make restore FILE=...` | Dump to / restore from `data/backups/` (the app also makes one every day) |
 | `make close-unfollowed` | List open postings of companies you no longer follow; `APPLY=1` closes them (back up first) |

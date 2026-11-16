@@ -37,7 +37,7 @@ TUNNEL_ENV := infra/tunnel/.env.tunnel
 TUNNEL := docker compose --env-file $(TUNNEL_ENV) -f infra/tunnel/compose.yaml
 
 .DEFAULT_GOAL := help
-.PHONY: help env tunnel-start tunnel-stop tunnel-status mac-wake start stop restart reset clean logs ps migrate seed test test-app test-ui test-agents hooks qa backup restore close-unfollowed form-check health-check errors two-step-off sign-out-all set-password email-test code-mail-check ollama-check llm-check demo demo-clear
+.PHONY: help env tunnel-start tunnel-stop tunnel-status mac-wake start stop restart reset clean logs ps migrate seed test test-app test-ui test-agents test-host setup-host hooks qa backup restore close-unfollowed form-check health-check errors two-step-off sign-out-all set-password email-test code-mail-check ollama-check llm-check demo demo-clear
 
 help: ## List the targets
 	@grep -hE '^[a-z-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-13s %s\n", $$1, $$2}'
@@ -102,6 +102,19 @@ test-app:
 
 test-ui:
 	$(COMPOSE) exec ui sh -c 'npm run lint && npm run build'
+
+setup-host: ## Prepare this machine for test-host: .venv, Chromium, npm ci, a Postgres (no Docker stack)
+	@infra/scripts/agent-setup.sh
+
+# The address setup-host found or started; a sandbox that brings its own Postgres sets it.
+JAP_HOST_DATABASE_URL ?= $(shell cat .venv/jap-host-db-url 2>/dev/null)
+
+test-host: ## The checks of `make test` on this machine, without the stack (cloud sandboxes; what CI runs)
+	@test -x .venv/bin/pytest -a -d frontend/node_modules -a -n "$(JAP_HOST_DATABASE_URL)" || { echo "Not set up for host tests. Run: make setup-host"; exit 1; }
+	cd backend && PATH="$(CURDIR)/.venv/bin:$$PATH" DATABASE_URL="$(JAP_HOST_DATABASE_URL)" JAP_REQUIRE_DB=1 OPENROUTER_API_KEY= \
+		sh -c 'ruff check . && ruff format --check . && mypy . && pytest -q'
+	cd frontend && npm run lint && npm run build
+	@$(MAKE) --no-print-directory test-agents
 
 test-agents: ## The coding-agent guards: hook self-test, and nothing private is tracked
 	@python3 infra/scripts/agent-guard.py --self-test

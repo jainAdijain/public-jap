@@ -77,8 +77,9 @@ data/               gitignored: resumes, screenshots, cover letters, traces, bac
 
 ## Running and verifying
 
-Everything runs in Docker. There is no host virtualenv and no host `node_modules` worth using —
-run tools **inside the containers**, which the Makefile already does.
+On the Mac everything runs in Docker: run tools **inside the containers**, which the Makefile
+already does. Where the stack is not running (a cloud sandbox, a fresh checkout with no `.env`)
+use the host path in "Without the Docker stack" below instead of starting one.
 
 ```
 make start                  # build, start, wait for /api/health, migrate, check Ollama
@@ -107,6 +108,31 @@ Every target takes `ENV=local|live`. Both run from this checkout: `local` is the
 (`.env`, `data/`, never submits), `live` is the release stack behind the Cloudflare Tunnel at
 jap.tutorial.monster (`.env.live`, `data-live/`, submits for real). Leave `ENV` off unless the
 task is about hosting, and never run anything with `ENV=live` without being asked.
+
+### Without the Docker stack (cloud sandboxes)
+
+```
+make setup-host             # once: .venv, Chromium, npm ci, a Postgres with pgvector
+make test-host              # the same checks as make test, run on this machine
+```
+
+`make test-host` is the definition of done wherever `make test` cannot run. A single test:
+`cd backend && DATABASE_URL="$(cat ../.venv/jap-host-db-url)" ../.venv/bin/pytest -q tests/test_matching.py -k remote`.
+
+- `infra/scripts/agent-setup.sh` is the one setup script. Copilot runs it from
+  `.github/workflows/copilot-setup-steps.yml`; Devin, Codex and Claude Code on the web are
+  pointed at it in their own environment settings, which live outside the repo.
+- It needs no secret and a sandbox should be given none: no `.env`, no OpenRouter key, no
+  mailbox password. The tests fake OpenRouter, Ollama, Inngest and the job sites, so nothing
+  that needs a key is part of the check. Do not run `make llm-check`, `email-test`,
+  `code-mail-check` or `form-check` there.
+- Database tests **fail** rather than skip when Postgres is missing (`JAP_REQUIRE_DB=1`), so a
+  green run means they ran. One skip is expected: the `pg_dump` test, when no matching client
+  is installed.
+- There is no Ollama, no `docs/` and no running app. Say so when a task needs one of them
+  (checking a screen by hand, reading a PRD id) instead of guessing.
+- Do not run `make start` in a second checkout on the Mac to get a stack for tests: without its
+  own `.env` it takes the project name and ports of the stack that is already running.
 
 ### Do not run without being asked
 
