@@ -479,7 +479,8 @@ There is no promotion step: live runs whatever this checkout builds.
 | `make logs` / `make ps` | Follow logs / list services |
 | `make migrate` | `alembic upgrade head` in the app container |
 | `make seed` | Load `seed/companies.yaml` and `seed/skills.yaml` |
-| `make test` | ruff, mypy, pytest for app; lint and build for ui |
+| `make test` | ruff, mypy, pytest for app; lint and build for ui; the coding-agent guards (`make test-agents`) |
+| `make hooks` | Turn on the pre-commit check for this clone: refuses secrets files, `docs/`, `data/` and anything that looks like a key |
 | `make backup` / `make restore FILE=...` | Dump to / restore from `data/backups/` (the app also makes one every day) |
 | `make close-unfollowed` | List open postings of companies you no longer follow; `APPLY=1` closes them (back up first) |
 | `make code-mail-check` | Log in to the mailbox over IMAP and count the Greenhouse emails it holds (security codes, PRD A5) |
@@ -509,7 +510,9 @@ backend/            main.py, config.py, schemas/, database/ (+ migrations/), api
                     sources/, pipeline/, llm/, functions/ (Inngest), tests/
 frontend/           src/pages, src/components, src/api
 data/               gitignored: resumes, screenshots, cover letters, backups
-.github/workflows/  CI: ruff, mypy, pytest; ui lint and build; compose config check
+.github/workflows/  CI: ruff, mypy, pytest; ui lint and build; compose config check; agent guards
+AGENTS.md           the rules for coding agents; CLAUDE.md, .devin/, .claude/, .gemini/ and
+                    .cursorignore only point at it and enforce it (AGENTS.md, Harnesses)
 ```
 
 ## Version history

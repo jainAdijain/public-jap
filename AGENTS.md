@@ -38,6 +38,30 @@ live in `docs/` and are **not in git**: this repo is public and they carry perso
   that the PRD was unavailable rather than guessing at the meaning of a PRD id you cannot read.
 - Never copy the contents of `docs/` into a tracked file, a commit message or a PR body.
 
+## Harnesses
+
+This file is the one set of rules for every coding agent. Nothing else restates them; the
+other files only make a harness read this one, or enforce what it says.
+
+| Harness | Reads this file through | Enforcement |
+| --- | --- | --- |
+| Devin | `AGENTS.md` itself | `.devin/config.json`: deny rules and the guard hook |
+| Claude Code | `CLAUDE.md`, which is one line importing it | `.claude/settings.json`: deny rules and the guard hook |
+| Codex, Copilot | `AGENTS.md` itself | none of their own: the commit check and CI |
+| Cursor | `AGENTS.md` itself | `.cursorignore` |
+| Gemini CLI | `.gemini/settings.json` (`context.fileName`) | none of its own: the commit check and CI |
+
+- `infra/scripts/agent-guard.py` is the hook Devin and Claude Code run before a tool call. It
+  refuses reading a secrets file, printing rendered compose config, and anything aimed at the
+  live stack. Change a rule there and add a case to its `CASES`, not in one harness's config.
+- `infra/scripts/check-tracked.sh` refuses a commit that carries a secrets file, `docs/`,
+  `data/`, a `*.local.*` file or something shaped like an OpenRouter key. `make hooks` turns it
+  on for a clone; CI runs it regardless. `make test-agents` runs both self-checks.
+- Anything an agent needs to do is a `make` target, not a skill or command that only one
+  harness has. A rule goes in this file, never in a harness's own rules folder.
+- Personal overrides go in `AGENTS.local.md`, `.devin/config.local.json` or
+  `.claude/settings.local.json`, all gitignored.
+
 ## Layout
 
 ```
@@ -58,7 +82,8 @@ run tools **inside the containers**, which the Makefile already does.
 
 ```
 make start                  # build, start, wait for /api/health, migrate, check Ollama
-make test                   # the full check: test-app + test-ui
+make test                   # the full check: test-app + test-ui + test-agents
+make test-agents            # agent-guard.py --self-test && check-tracked.sh (runs on the host)
 make test-app               # ruff check . && ruff format --check . && mypy . && pytest -q
 make test-ui                # npm run lint && npm run build
 make logs / make ps

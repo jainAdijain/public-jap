@@ -37,7 +37,7 @@ TUNNEL_ENV := infra/tunnel/.env.tunnel
 TUNNEL := docker compose --env-file $(TUNNEL_ENV) -f infra/tunnel/compose.yaml
 
 .DEFAULT_GOAL := help
-.PHONY: help env tunnel-start tunnel-stop tunnel-status mac-wake start stop restart reset clean logs ps migrate seed test test-app test-ui qa backup restore close-unfollowed form-check health-check errors two-step-off sign-out-all set-password email-test code-mail-check ollama-check llm-check demo demo-clear
+.PHONY: help env tunnel-start tunnel-stop tunnel-status mac-wake start stop restart reset clean logs ps migrate seed test test-app test-ui test-agents hooks qa backup restore close-unfollowed form-check health-check errors two-step-off sign-out-all set-password email-test code-mail-check ollama-check llm-check demo demo-clear
 
 help: ## List the targets
 	@grep -hE '^[a-z-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-13s %s\n", $$1, $$2}'
@@ -95,13 +95,20 @@ demo: ## Load made-up postings for checking dedup and filters by hand (never fet
 demo-clear: ## Remove the demo postings, listings and boards
 	$(COMPOSE) exec app python -m database.demo clear
 
-test: test-app test-ui ## ruff, mypy and pytest for app; lint and build for ui
+test: test-app test-ui test-agents ## ruff, mypy and pytest for app; lint and build for ui; agent guards
 
 test-app:
 	$(COMPOSE) exec app sh -c 'ruff check . && ruff format --check . && mypy . && pytest -q'
 
 test-ui:
 	$(COMPOSE) exec ui sh -c 'npm run lint && npm run build'
+
+test-agents: ## The coding-agent guards: hook self-test, and nothing private is tracked
+	@python3 infra/scripts/agent-guard.py --self-test
+	@infra/scripts/check-tracked.sh && echo "check-tracked: nothing private is tracked"
+
+hooks: ## Turn on the pre-commit check for this clone (git config core.hooksPath .githooks)
+	git config core.hooksPath .githooks
 
 qa: ## Dedup QA set: place ~100 labelled job pairs and print the accuracy
 	$(COMPOSE) exec app pytest -q -s tests/test_dedup_qa.py

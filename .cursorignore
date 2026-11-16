@@ -1,0 +1,16 @@
+# Cursor already skips .env* and everything in .gitignore. These lines say so out loud, and
+# put back what AGENTS.md tells an agent to read.
+
+# Secrets
+.env
+.env.*
+infra/tunnel/.env.tunnel
+!.env.example
+!infra/tunnel/.env.tunnel.example
+
+# Real resumes, screenshots, cover letters and backups
+data/
+data-live/
+
+# The PRD, build plan and design doc are gitignored but meant to be read (AGENTS.md).
+!docs/

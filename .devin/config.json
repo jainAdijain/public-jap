@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(.env)",
+      "Read(.env.live)",
+      "Read(.env.local)",
+      "Read(infra/tunnel/.env.tunnel)",
+      "Write(.env)",
+      "Write(.env.live)",
+      "Write(.env.local)",
+      "Write(infra/tunnel/.env.tunnel)"
+    ],
+    "ask": [
+      "Exec(make reset)",
+      "Exec(make clean)",
+      "Exec(make tunnel-start)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(exec|read|write|edit|apply_patch|grep|notebook_read|notebook_edit)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${DEVIN_PROJECT_DIR:-.}/infra/scripts/agent-guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
