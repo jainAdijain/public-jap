@@ -267,6 +267,20 @@ avoids GitHub turning a bare `#2` into a link to pull request 2.
 Cite the id in commit subjects next to the version — `Fix the enrich retry storm (v0.17.0,
 JAP-2)` — and close the entry in the same commit that fixes it.
 
+## Ideas
+
+`IDEAS.md` is the numbered list of what would make public-jap better and is not being built
+yet, in one serial order like `BUGS.md`. Read it before proposing something as new.
+
+When Aditya says **"move to idea"** (or "move to ideas") about something in the session, add it
+to `IDEAS.md` with the next free `IDEA-N` (on a branch that shares the queue with other agents,
+describe it in the PR instead, see Several agents at once): a row in the table and a section
+saying what it is, why it came up, what is already known about how to build it, and anything
+still to decide. Do not start building it. An idea becomes work only when Aditya says so.
+
+This list is tracked and public. The private ideas document in `docs/` is a separate thing and
+is never copied into it.
+
 ## Releases
 
 A user-visible change gets a version bump in three places, kept in step (not on a branch that
