@@ -2,7 +2,8 @@
 
 GET /api/ops shows the last backup and each ATS's last form test; the two POSTs start a
 backup or a form test now (the same Inngest functions the schedules run). GET /api/ops/status
-is the health part of Status (PRD 1.19, O5).
+is the health part of Status (PRD 1.19, O5). All of it is about the service, so the whole
+router is the admin's (main.py; PRD S12, O Part B).
 """
 
 import uuid
@@ -12,12 +13,11 @@ from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
 from api.errors import ApiError
-from config import get_settings
 from database.models import FormCheck
 from database.session import Session
 from functions.events import send
 from observability import status as health
-from pipeline import backup, form_check
+from pipeline import backup, form_check, storage
 from schemas.ops import BackupOut, FormCheckOut, Ops
 from schemas.status import Status
 
@@ -79,15 +79,7 @@ async def form_check_now() -> dict[str, bool]:
 @router.get("/form-check/{check_id}/screenshot")
 async def form_check_screenshot(check_id: uuid.UUID, session: Session) -> FileResponse:
     row = await session.get(FormCheck, check_id)
-    path = _inside_data(row.screenshot_path if row else None)
+    path = storage.served(row.screenshot_path if row else None)
     if path is None:
         raise ApiError(404, "not_found", "No screenshot for this form test")
     return FileResponse(path, media_type="image/png")
-
-
-def _inside_data(path: str | None) -> Path | None:
-    if not path:
-        return None
-    root = Path(get_settings().jap_data_dir).resolve()
-    resolved = Path(path).resolve()
-    return resolved if resolved.is_relative_to(root) and resolved.exists() else None

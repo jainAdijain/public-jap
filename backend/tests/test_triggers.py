@@ -1,6 +1,7 @@
 """Phase 5 triggers: the Run dialog's scope, repeats collapsing, the Daily run and the
 profile save's background run (T1 to T5)."""
 
+import uuid
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -9,10 +10,11 @@ import httpx
 import psycopg
 import pytest
 
+from database import tenant
 from database.session import get_sessionmaker
 from functions.fetch_board import close_step, fetch_step
 from functions.triggers import daily_due, daily_step, queue_step
-from pipeline.runs import in_scope, merge_scope, role_matcher, start_run
+from pipeline.runs import finish_run, in_scope, merge_scope, role_matcher, start_run
 from tests import boards as b
 from tests.test_ingest import _board
 
@@ -84,36 +86,16 @@ async def test_state_shows_last_active_and_queued(
     assert state["queued"]["id"] == queued["id"] and queued["trigger"] == "manual"
 
 
-async def test_scoped_fetch_touches_only_that_role(
+async def test_a_scoped_run_still_stores_the_whole_board(
     db: str, sql: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A board is shared (PRD S7): whatever roles a search was scoped to, the fetch stores
+    and closes the whole board, because someone else who follows it may want the rest. The
+    roles narrow what that run picks to apply for (pipeline/apply/flow.py)."""
     backend = b.job(b.GREENHOUSE_JOB, id=2001, title="Senior Backend Engineer")
     policy = b.GREENHOUSE_JOB  # Commercial Policy Lead
     routes: b.Routes = {f"{GH}/discord/jobs": b.greenhouse(backend, policy)}
     b.fake_boards(monkeypatch, routes)
-    board_id = await _board()
-    await fetch_step(board_id)  # an unscoped run stores both
-    assert sql.execute("SELECT count(*) FROM posting").fetchone() == (2,)
-
-    # Both leave the board; a Backend Engineer run closes only the backend job.
-    routes[f"{GH}/discord/jobs"] = b.greenhouse()
-    fetched = await fetch_step(board_id, ["Backend Engineer"])
-    assert fetched["fetched"] == 0
-    assert await close_step(board_id, fetched["seen"], ["Backend Engineer"]) == 1
-    states = dict(sql.execute("SELECT title_raw, state FROM posting").fetchall())
-    assert states == {"Senior Backend Engineer": "closed", "Commercial Policy Lead": "open"}
-
-    # A scoped fetch stores only that role's jobs.
-    new_backend = b.job(b.GREENHOUSE_JOB, id=2002, title="Backend Developer")
-    new_policy = b.job(b.GREENHOUSE_JOB, id=2003, title="Policy Analyst")
-    routes[f"{GH}/discord/jobs"] = b.greenhouse(policy, new_backend, new_policy)
-    fetched = await fetch_step(board_id, ["Backend Engineer"])
-    assert fetched["fetched"] == 1 and fetched["new"] == 1
-    titles = {t for (t,) in sql.execute("SELECT title_raw FROM posting").fetchall()}
-    assert "Backend Developer" in titles and "Policy Analyst" not in titles
-
-
-async def test_start_run_passes_roles_to_each_board(db: str, sql: psycopg.Connection[Any]) -> None:
     board_id = await _board()
     sql.execute(
         "INSERT INTO run (trigger, mode, scope) VALUES "
@@ -121,21 +103,52 @@ async def test_start_run_passes_roles_to_each_board(db: str, sql: psycopg.Connec
     )
     row = sql.execute("SELECT id FROM run").fetchone()
     assert row is not None
-    run_id = row[0]
     async with get_sessionmaker()() as session:
-        boards = await start_run(session, run_id)
-    assert boards == [{"board_id": board_id, "ats": "greenhouse", "roles": ["Backend Engineer"]}]
+        boards = await start_run(session, row[0])
+    assert boards == [{"board_id": board_id, "ats": "greenhouse"}]  # no roles go to the fetch
     assert sql.execute("SELECT status FROM run").fetchone() == ("running",)
+
+    fetched = await fetch_step(board_id)
+    assert fetched["fetched"] == 2 and fetched["new"] == 2
+    assert sql.execute("SELECT count(*) FROM posting").fetchone() == (2,)
+
+    # Both leave the board: both close, not only the scoped role's.
+    routes[f"{GH}/discord/jobs"] = b.greenhouse()
+    fetched = await fetch_step(board_id)
+    assert await close_step(board_id, fetched["seen"]) == 2
+    states = dict(sql.execute("SELECT title_raw, state FROM posting").fetchall())
+    assert states == {"Senior Backend Engineer": "closed", "Commercial Policy Lead": "closed"}
+
+
+async def test_a_run_fetches_only_boards_its_user_follows(
+    db: str, sql: psycopg.Connection[Any], other_id: uuid.UUID
+) -> None:
+    mine_board = await _board()
+    with tenant.as_user(other_id):
+        theirs = await _board(token="stripe")
+    sql.execute("INSERT INTO run (trigger, mode) VALUES ('manual', 'find_only')")
+    sql.execute(
+        "INSERT INTO run (user_id, trigger, mode) VALUES (%s, 'manual', 'find_only')", (other_id,)
+    )
+    runs = dict(sql.execute("SELECT user_id, id FROM run").fetchall())
+    with tenant.as_system():
+        async with get_sessionmaker()() as session:
+            first = await start_run(session, runs[other_id])
+            await finish_run(session, runs[other_id], {})
+            second = await start_run(session, next(r for u, r in runs.items() if u != other_id))
+    assert [x["board_id"] for x in first or []] == [theirs]
+    assert [x["board_id"] for x in second or []] == [mine_board]
 
 
 async def test_profile_save_queues_a_background_run(
     api: httpx.AsyncClient, sql: psycopg.Connection[Any], events: list[tuple[str, dict[str, Any]]]
 ) -> None:
     await api.put("/api/profile", json={"target_roles": ["Backend Engineer"]})
-    assert events[-1] == ("profile/saved", {})  # the save itself re-filtered (T2)
-    run_id = await queue_step("profile_saved")
-    assert run_id is not None
-    assert await queue_step("profile_saved") is None  # repeats collapse (T4)
+    me = (await api.get("/api/auth/me")).json()["id"]
+    assert events[-1] == ("profile/saved", {"user_id": me})  # the save itself re-filtered (T2)
+    [run] = await queue_step("profile_saved")
+    assert run["user_id"] == me
+    assert await queue_step("profile_saved") == []  # repeats collapse (T4)
     assert sql.execute("SELECT trigger FROM run").fetchall() == [("profile_saved",)]
 
 
@@ -144,11 +157,11 @@ async def test_daily_step_fires_once_when_on(
 ) -> None:
     now = datetime.now(IST)
     await api.patch("/api/profile", json={"daily_run_at": now.strftime("%H:%M")})
-    assert await daily_step() is None  # Daily run is off
+    assert await daily_step() == []  # Daily run is off
     await api.patch("/api/profile", json={"daily_run": True})
-    run_id = await daily_step()
-    assert run_id is not None
-    assert await daily_step() is None  # the same slot does not fire twice
+    [run] = await daily_step()
+    assert run["user_id"] == (await api.get("/api/auth/me")).json()["id"]
+    assert await daily_step() == []  # the same slot does not fire twice
     assert sql.execute("SELECT trigger, status FROM run").fetchall() == [("scheduled", "queued")]
     last = sql.execute("SELECT daily_run_last_at FROM profile").fetchone()
     assert last is not None and last[0] <= datetime.now(UTC)

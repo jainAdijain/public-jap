@@ -3,9 +3,17 @@
 The test database is created and migrated once per session from DATABASE_URL (the dev
 database itself is never touched). Without a reachable Postgres those tests are skipped,
 unless JAP_REQUIRE_DB=1 (CI), where they fail instead.
+
+Private data needs a user (PRD S7). `owner` is the admin account: a test that asks for it
+(or for `sql` or `api`, which do) runs as that user, the way a request or an Inngest call
+for them would, so pipeline functions called straight from a test read and write the
+owner's rows. `sql` is the table owner's connection with app.user_id set to the same
+account, so a row inserted by hand without a user_id is the owner's too. `other` is a
+second, ordinary account, for checking that one user never reaches another's data.
 """
 
 import os
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
@@ -19,9 +27,11 @@ from sqlalchemy.engine import make_url
 
 from config import get_settings
 from database import session as db_session
+from database import tenant
 
 BACKEND = Path(__file__).resolve().parent.parent
 TABLES = (
+    "email_verification, rate_limit, app_setting, user_listing, board_follow, "
     "auth_session, password_reset, app_user, "
     "log_event, route_stat, alert_state, "
     "form_check, llm_call, possible_duplicate, dedup_override, skill_alias, company_alias, "
@@ -84,9 +94,47 @@ def db(database_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> It
     get_settings.cache_clear()
 
 
-@pytest.fixture
-def sql(db: str) -> Iterator[psycopg.Connection[Any]]:
+OWNER_EMAIL = "owner@example.com"
+OWNER_PASSWORD = "correct horse battery"
+OTHER_EMAIL = "other@example.com"
+OTHER_PASSWORD = "another horse battery"
+
+
+@pytest.fixture(autouse=True)
+def fast_hashing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A cheap scrypt cost in tests; the real cost is checked in test_auth.py."""
+    import auth.passwords
+
+    monkeypatch.setattr(auth.passwords, "N", 2**10)
+
+
+def add_account(db: str, email: str, password: str, *, admin: bool = False) -> uuid.UUID:
+    """A confirmed account with an empty profile, written straight to the database."""
+    from auth.passwords import _hash_sync
+
     with psycopg.connect(_libpq(db), autocommit=True) as conn:
+        row = conn.execute(
+            "INSERT INTO app_user (email, password_hash, is_admin, email_verified_at)"
+            " VALUES (%s, %s, %s, now()) RETURNING id",
+            (email, _hash_sync(password), admin),
+        ).fetchone()
+        assert row is not None
+        return uuid.UUID(str(row[0]))
+
+
+@pytest.fixture
+def owner(db: str, fast_hashing: None) -> Iterator[uuid.UUID]:
+    """The admin account. The rest of the test runs as this user."""
+    user_id = add_account(db, OWNER_EMAIL, OWNER_PASSWORD, admin=True)
+    with tenant.as_user(user_id):
+        yield user_id
+
+
+@pytest.fixture
+def sql(db: str, owner: uuid.UUID) -> Iterator[psycopg.Connection[Any]]:
+    """The table owner's connection (it sees every row), inserting as the owner account."""
+    with psycopg.connect(_libpq(db), autocommit=True) as conn:
+        conn.execute(f"SET app.user_id = '{owner}'")
         yield conn
 
 
@@ -113,35 +161,41 @@ def events(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict[str, Any]]]:
     return sent
 
 
-OWNER_EMAIL = "owner@example.com"
-OWNER_PASSWORD = "correct horse battery"
+def _client() -> httpx.AsyncClient:
+    from main import app
+
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
 
-@pytest.fixture(autouse=True)
-def fast_hashing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A cheap scrypt cost in tests; the real cost is checked in test_auth.py."""
-    import auth.passwords
-
-    monkeypatch.setattr(auth.passwords, "N", 2**10)
+async def _sign_in(client: httpx.AsyncClient, email: str, password: str) -> None:
+    resp = await client.post("/api/auth/sign-in", json={"email": email, "password": password})
+    assert resp.status_code == 200, resp.text
 
 
 @pytest.fixture
 async def anon(db: str, events: list[Any]) -> AsyncIterator[httpx.AsyncClient]:
     """A browser with no session."""
-    from main import app
-
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with _client() as client:
         yield client
     await db_session.get_engine().dispose()
 
 
 @pytest.fixture
-async def api(anon: httpx.AsyncClient) -> httpx.AsyncClient:
+async def api(anon: httpx.AsyncClient, owner: uuid.UUID) -> httpx.AsyncClient:
     """A browser signed in as the owner (PRD S1): every /api route but health needs one."""
-    resp = await anon.post(
-        "/api/auth/sign-up", json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD}
-    )
-    assert resp.status_code == 201, resp.text
+    await _sign_in(anon, OWNER_EMAIL, OWNER_PASSWORD)
     return anon
+
+
+@pytest.fixture
+def other_id(db: str, owner: uuid.UUID) -> uuid.UUID:
+    """A second account, not the admin (PRD S7)."""
+    return add_account(db, OTHER_EMAIL, OTHER_PASSWORD)
+
+
+@pytest.fixture
+async def other(anon: httpx.AsyncClient, other_id: uuid.UUID) -> AsyncIterator[httpx.AsyncClient]:
+    """A second browser, signed in as the second account."""
+    async with _client() as client:
+        await _sign_in(client, OTHER_EMAIL, OTHER_PASSWORD)
+        yield client

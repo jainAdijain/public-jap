@@ -1,5 +1,6 @@
-"""The confirmation email (E1 to E3): "Applied: Role at Company" to the address on My profile,
-sent once per Applied application by notify-applied. Sent over SMTP from the mailbox in .env
+"""The confirmation email (E1 to E3): "Applied: Role at Company" to the user who applied, at
+the address on their profile or else their account's (PRD S13), sent once per Applied
+application by notify-applied. Sent over SMTP from the mailbox in .env
 (E4): GoDaddy Professional Email by default, or Gmail with an app password.
 pipeline/alerts.py sends the failure alerts through the same send().
 """
@@ -19,8 +20,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from database.models import Application, Company, Listing, Profile
+from database import tenant
+from database.models import Application, Company, Listing
 from pipeline.cover_letter import upload_name
+from pipeline.workspace import contact_email, profile_of
 
 PLATFORMS = {"greenhouse": "Greenhouse", "lever": "Lever", "ashby": "Ashby"}
 
@@ -39,20 +42,30 @@ class Mail:
     attachment_type: str = "application/pdf"
 
 
+async def _mine(session: AsyncSession, app_id: uuid.UUID) -> Application | None:
+    found: Application | None = await session.scalar(
+        select(Application).where(
+            Application.id == app_id, Application.user_id == tenant.user_id(session)
+        )
+    )
+    return found
+
+
 async def build(session: AsyncSession, app_id: uuid.UUID) -> Mail | None:
     """The email for an Applied application, or None when it was already sent."""
     settings = get_settings()
-    app = await session.get(Application, app_id)
+    app = await _mine(session, app_id)
     if app is None or app.status != "applied":
         raise EmailNotSent(f"application {app_id} is not Applied")
     if app.email_sent_at is not None:
         return None
     listing = await session.get(Listing, app.listing_id)
-    profile = await session.scalar(select(Profile))
+    profile = await profile_of(session)
+    to = await contact_email(session)
     assert listing is not None
     company = await session.get(Company, listing.company_id)
-    if not profile or not profile.email:
-        raise EmailNotSent("My profile has no email address")
+    if not to:
+        raise EmailNotSent("There is no email address to write to")
     jd = app.jd_snapshot or {}
     title = str(jd.get("title") or listing.title_display)
     company_name = company.name if company else ""
@@ -76,11 +89,11 @@ async def build(session: AsyncSession, app_id: uuid.UUID) -> Mail | None:
     if letter is not None and letter.exists():
         lines += ["", "Cover letter: attached, exactly as sent"]
     return Mail(
-        to=profile.email,
+        to=to,
         subject=f"Applied: {title} at {company_name}",
         body="\n".join(lines) + "\n",
         attachment=letter if letter and letter.exists() else None,
-        attachment_name=upload_name(profile.full_name, company_name),
+        attachment_name=upload_name(profile.full_name if profile else None, company_name),
     )
 
 
@@ -122,7 +135,7 @@ async def send(mail: Mail) -> None:
 
 
 async def mark_sent(session: AsyncSession, app_id: uuid.UUID) -> None:
-    app = await session.get(Application, app_id)
+    app = await _mine(session, app_id)
     if app is not None and app.email_sent_at is None:
         app.email_sent_at = datetime.now(UTC)
         await session.commit()

@@ -1,6 +1,7 @@
-"""Failure alerts (Phase 8, PRD Hosting and operations): one email to the address on My
-profile when a run fails or a board in it can't be fetched, when an application ends
-Failed, and when the weekly form test finds a form JAP can no longer read.
+"""Failure alerts (Phase 8, PRD Hosting and operations): one email when a run fails or a
+board in it can't be fetched, when an application ends Failed, and when the weekly form test
+finds a form JAP can no longer read. A run's and an application's go to the user whose they
+are (PRD S13); the form test is the service's, so its alert goes to the admin.
 
 Each alert is sent once: run.alert_sent_at and application.alert_sent_at are set after the
 send, as their own step (functions/notify_failure.py), like the confirmation email. Alerts
@@ -16,8 +17,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from database.models import Application, Company, FormCheck, Listing, Profile, Run
+from database import tenant
+from database.models import Application, Company, FormCheck, Listing, Run
 from pipeline.notify import EmailNotSent, Mail
+from pipeline.workspace import owner_email
 
 TRIGGERS = {
     "manual": "the Run button",
@@ -28,10 +31,26 @@ TRIGGERS = {
 
 
 async def _to(session: AsyncSession) -> str:
-    profile = await session.scalar(select(Profile))
-    if not profile or not profile.email:
-        raise EmailNotSent("My profile has no email address")
-    return str(profile.email)
+    to = await owner_email(session)
+    if not to:
+        raise EmailNotSent("There is no email address to write to")
+    return to
+
+
+async def _run(session: AsyncSession, run_id: uuid.UUID) -> Run | None:
+    found: Run | None = await session.scalar(
+        select(Run).where(Run.id == run_id, Run.user_id == tenant.user_id(session))
+    )
+    return found
+
+
+async def _application(session: AsyncSession, app_id: uuid.UUID) -> Application | None:
+    found: Application | None = await session.scalar(
+        select(Application).where(
+            Application.id == app_id, Application.user_id == tenant.user_id(session)
+        )
+    )
+    return found
 
 
 def _local(at: datetime | None) -> str:
@@ -45,7 +64,7 @@ def _ui(path: str = "") -> str:
 
 async def run_alert(session: AsyncSession, run_id: uuid.UUID) -> Mail | None:
     """The alert for a run that failed or lost a board, or None (nothing failed, or sent)."""
-    run = await session.get(Run, run_id)
+    run = await _run(session, run_id)
     if run is None or run.alert_sent_at is not None:
         return None
     counts = run.counts or {}
@@ -69,7 +88,7 @@ async def run_alert(session: AsyncSession, run_id: uuid.UUID) -> Mail | None:
 
 async def application_alert(session: AsyncSession, app_id: uuid.UUID) -> Mail | None:
     """The alert for an application that ended Failed, or None (not failed, or sent)."""
-    app = await session.get(Application, app_id)
+    app = await _application(session, app_id)
     if app is None or app.status != "failed" or app.alert_sent_at is not None:
         return None
     listing = await session.get(Listing, app.listing_id)
@@ -121,7 +140,7 @@ async def form_check_alert(session: AsyncSession, check_ids: list[uuid.UUID]) ->
 
 async def mark_sent(session: AsyncSession, kind: str, target: uuid.UUID) -> None:
     row: Run | Application | None = (
-        await session.get(Run, target) if kind == "run" else await session.get(Application, target)
+        await _run(session, target) if kind == "run" else await _application(session, target)
     )
     if row is not None and row.alert_sent_at is None:
         row.alert_sent_at = datetime.now(UTC)

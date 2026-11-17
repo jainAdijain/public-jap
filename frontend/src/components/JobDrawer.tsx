@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, type Application, type CoverLetter, type FormField, type ListingDetail, type Profile, type Salary, type Timeline as TimelineData } from '../api/client'
 import { atsLabel, errorText, plural, shortDate, STATUS, when, workModeLabel } from '../format'
 import { useApp } from '../appContext'
+import { useAuth } from '../authContext'
 
 type Props = {
   id: string
@@ -163,6 +164,7 @@ function WhyItFits({ listing, profile }: { listing: ListingDetail; profile: Prof
 /** Other boards with this job. JAP joins and settles duplicates itself (PRD 1.7); Not the
  * same job is only for the rare wrong join. */
 function AlsoOn({ listing, busy, act, onOpen }: { listing: ListingDetail; busy: boolean; act: (fn: () => Promise<unknown>) => void; onOpen: (id: string) => void }) {
+  const isAdmin = useAuth().user.is_admin // a job is shared, so undoing a join is the admin's (S7)
   if (listing.also_on.length === 0) return null
   return (
     <Sec title="Also posted on">
@@ -176,15 +178,17 @@ function AlsoOn({ listing, busy, act, onOpen }: { listing: ListingDetail; busy: 
               · {a.title === listing.title ? 'same title' : a.title}, {a.locations.join(' · ') || 'no location given'}
               {a.state === 'closed' && <span className="muted"> · closed</span>}
             </span>
-            <button
-              type="button"
-              className="btn-link"
-              disabled={busy}
-              title="JAP joined these by mistake: make this posting a job of its own (remembered on later searches)"
-              onClick={() => act(async () => onOpen((await api.split(a.posting_id)).listing_id))}
-            >
-              Not the same job
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                className="btn-link"
+                disabled={busy}
+                title="JAP joined these by mistake: make this posting a job of its own, for everyone (remembered on later searches)"
+                onClick={() => act(async () => onOpen((await api.split(a.posting_id)).listing_id))}
+              >
+                Not the same job
+              </button>
+            )}
           </div>
         ))}
       </div>

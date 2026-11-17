@@ -3,14 +3,17 @@
 Every Job becomes a posting row keyed on (source, external_id). The raw payload and the
 HTML are stored unchanged; description_text is the HTML stripped to plain text, and its
 hash decides whether the posting needs extracting again (I4). A posting that is no longer
-on its board is marked Closed, never deleted. A board I stopped following stores and
-closes nothing (I14): its postings were closed by the unfollow (pipeline/unfollow.py).
+on its board is marked Closed, never deleted. A board nobody follows any more stores and
+closes nothing (I14): its postings were closed by the last unfollow (pipeline/unfollow.py).
+
+This is shared data (PRD S7): a board is stored whole, whoever's search fetched it and
+whatever roles that search was scoped to, because someone else who follows it may want the
+rest. What each user is shown is decided afterwards, by their own filter.
 """
 
 import hashlib
 import re
 import uuid
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from html.parser import HTMLParser
@@ -154,16 +157,12 @@ async def store_jobs(session: AsyncSession, board_id: uuid.UUID, jobs: list[Job]
 
 
 async def close_missing(
-    session: AsyncSession,
-    board_id: uuid.UUID,
-    seen_external_ids: list[str],
-    only: Callable[[str], bool] | None = None,
+    session: AsyncSession, board_id: uuid.UUID, seen_external_ids: list[str]
 ) -> int:
     """Mark Closed every open posting of this board that the board no longer lists (I6).
 
     A posting closed by an unfollow that the board no longer lists either stays Closed, and
     its reason becomes gone_from_board (I16): the employer took it down while I was away.
-    only (a test on the title) limits both to the postings a scoped run looked at (T3).
     Returns how many open postings were closed."""
     if not await followed(session, board_id):
         await session.rollback()
@@ -174,10 +173,8 @@ async def close_missing(
     ]
     if seen_external_ids:
         missing.append(Posting.external_id.not_in(seen_external_ids))
-    rows = await session.execute(
-        select(Posting.id, Posting.title_raw, Posting.state).where(*missing)
-    )
-    found = [(pid, state) for pid, title, state in rows if only is None or only(title)]
+    rows = await session.execute(select(Posting.id, Posting.state).where(*missing))
+    found = [(pid, state) for pid, state in rows]
     open_ids = [pid for pid, state in found if state == "open"]
     stale_ids = [pid for pid, state in found if state != "open"]
     if open_ids:

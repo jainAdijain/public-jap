@@ -102,6 +102,16 @@ class Spend(BaseModel):
     reached: bool
 
 
+class Plan(BaseModel):
+    """What this account may use (PRD S12), as Settings shows it."""
+
+    name: str  # Free, or Admin
+    boards: int | None  # companies followed; None: no limit
+    applications_per_day: int
+    ai_usd: float  # AI spend a month
+    custom: bool = False  # the admin set at least one of these for this account
+
+
 class ProfileOut(ProfileIn):
     email: str | None = None  # stored values are returned as saved
     apply_mode: ApplyMode
@@ -110,6 +120,7 @@ class ProfileOut(ProfileIn):
     daily_cap: int
     auto_apply_min_skills: int  # F6: Automatic applies at or above this % of required skills
     spend: Spend
+    plan: Plan
 
 
 class ProfileSaved(ProfileOut):

@@ -38,6 +38,58 @@ live in `docs/` and are **not in git**: this repo is public and they carry perso
   that the PRD was unavailable rather than guessing at the meaning of a PRD id you cannot read.
 - Never copy the contents of `docs/` into a tracked file, a commit message or a PR body.
 
+## Harnesses
+
+This file is the one set of rules for every coding agent. Nothing else restates them; the
+other files only make a harness read this one, or enforce what it says.
+
+| Harness | Reads this file through | Enforcement |
+| --- | --- | --- |
+| Devin | `AGENTS.md` itself | `.devin/config.json`: deny rules and the guard hook |
+| Claude Code | `CLAUDE.md`, which is one line importing it | `.claude/settings.json`: deny rules and the guard hook |
+| Codex, Copilot | `AGENTS.md` itself | none of their own: the commit check and CI |
+| Cursor | `AGENTS.md` itself | `.cursorignore` |
+| Gemini CLI | `.gemini/settings.json` (`context.fileName`) | none of its own: the commit check and CI |
+
+- `infra/scripts/agent-guard.py` is the hook Devin and Claude Code run before a tool call. It
+  refuses reading a secrets file, printing rendered compose config, and anything aimed at the
+  live stack. Change a rule there and add a case to its `CASES`, not in one harness's config.
+- `infra/scripts/check-tracked.sh` refuses a commit that carries a secrets file, `docs/`,
+  `data/`, a `*.local.*` file or something shaped like an OpenRouter key. `make hooks` turns it
+  on for a clone; CI runs it regardless. `make test-agents` runs both self-checks.
+- Anything an agent needs to do is a `make` target, not a skill or command that only one
+  harness has. A rule goes in this file, never in a harness's own rules folder.
+- Personal overrides go in `AGENTS.local.md`, `.devin/config.local.json` or
+  `.claude/settings.local.json`, all gitignored.
+
+### Several agents at once
+
+Each agent gets its own worktree; none of them share this checkout.
+
+```
+make worktree NAME=dedup-fix     # ../public-jap-dedup-fix on branch dedup-fix, with its .env
+make worktree-list               # the worktrees and the ports each one's stack uses
+make worktree-remove NAME=...    # its stack, volumes and checkout; the branch is kept
+```
+
+A worktree's stack is separate in every way that matters: Docker project `jap-<name>`, its own
+database volume, its own `data/`, and ports in the 55xx/85xx/86xx/57xx/87xx range that neither
+local nor live uses. `make worktree` copies the keys from `.env` by writing them, and forces
+`JAP_SUBMIT_ENABLED=false` and `JAP_ALERTS_ENABLED=false`, so a worktree never submits an
+application and never sends an alert email.
+
+- **Two agents must not share one checkout.** `tests/conftest.py` drops and recreates
+  `<db>_test` at the start of a session, so two `make test-app` runs against one stack delete
+  each other's database half way through.
+- **On a branch, leave the shared files alone.** Do not take a `JAP-N` id and do not bump the
+  version: two branches always pick the same next number, and every one of them edits the same
+  four lines. Describe the defect or the change in the PR instead; Aditya, or one agent at
+  merge time, assigns the id and the version. A branch that is the only one in flight can do
+  both as usual.
+- Two stacks on one Mac still share Ollama, which only embeds, and the OpenRouter account.
+  The spend cap is a sum over each database's own `llm_call` rows (`llm/spend.py`), so every
+  worktree gets a fresh cap of its own and the real monthly bill is the total across them.
+
 ## Layout
 
 ```
@@ -53,12 +105,14 @@ data/               gitignored: resumes, screenshots, cover letters, traces, bac
 
 ## Running and verifying
 
-Everything runs in Docker. There is no host virtualenv and no host `node_modules` worth using —
-run tools **inside the containers**, which the Makefile already does.
+On the Mac everything runs in Docker: run tools **inside the containers**, which the Makefile
+already does. Where the stack is not running (a cloud sandbox, a fresh checkout with no `.env`)
+use the host path in "Without the Docker stack" below instead of starting one.
 
 ```
 make start                  # build, start, wait for /api/health, migrate, check Ollama
-make test                   # the full check: test-app + test-ui
+make test                   # the full check: test-app + test-ui + test-agents
+make test-agents            # agent-guard.py --self-test && check-tracked.sh (runs on the host)
 make test-app               # ruff check . && ruff format --check . && mypy . && pytest -q
 make test-ui                # npm run lint && npm run build
 make logs / make ps
@@ -82,6 +136,31 @@ Every target takes `ENV=local|live`. Both run from this checkout: `local` is the
 (`.env`, `data/`, never submits), `live` is the release stack behind the Cloudflare Tunnel at
 jap.tutorial.monster (`.env.live`, `data-live/`, submits for real). Leave `ENV` off unless the
 task is about hosting, and never run anything with `ENV=live` without being asked.
+
+### Without the Docker stack (cloud sandboxes)
+
+```
+make setup-host             # once: .venv, Chromium, npm ci, a Postgres with pgvector
+make test-host              # the same checks as make test, run on this machine
+```
+
+`make test-host` is the definition of done wherever `make test` cannot run. A single test:
+`cd backend && DATABASE_URL="$(cat ../.venv/jap-host-db-url)" ../.venv/bin/pytest -q tests/test_matching.py -k remote`.
+
+- `infra/scripts/agent-setup.sh` is the one setup script. Copilot runs it from
+  `.github/workflows/copilot-setup-steps.yml`; Devin, Codex and Claude Code on the web are
+  pointed at it in their own environment settings, which live outside the repo.
+- It needs no secret and a sandbox should be given none: no `.env`, no OpenRouter key, no
+  mailbox password. The tests fake OpenRouter, Ollama, Inngest and the job sites, so nothing
+  that needs a key is part of the check. Do not run `make llm-check`, `email-test`,
+  `code-mail-check` or `form-check` there.
+- Database tests **fail** rather than skip when Postgres is missing (`JAP_REQUIRE_DB=1`), so a
+  green run means they ran. One skip is expected: the `pg_dump` test, when no matching client
+  is installed.
+- There is no Ollama, no `docs/` and no running app. Say so when a task needs one of them
+  (checking a screen by hand, reading a PRD id) instead of guessing.
+- Do not run `make start` in a second checkout on the Mac to get a stack for tests: without its
+  own `.env` it takes the project name and ports of the stack that is already running.
 
 ### Do not run without being asked
 
@@ -179,7 +258,8 @@ still passes locally.
 `BUGS.md` is the numbered list of known defects, in one serial order that is never renumbered
 and never reused. Read it at the start of a session, before reporting anything as new.
 
-Aditya says whether something is a **bug** or an **issue**; you give it the next free `JAP-N`,
+Aditya says whether something is a **bug** or an **issue**; you give it the next free `JAP-N`
+(unless other agents are working in parallel, see Several agents at once),
 write it up well enough to act on weeks later (symptom, where it shows, root cause if known,
 the files involved, what the fix would be) and keep the status current. The `JAP-` prefix
 avoids GitHub turning a bare `#2` into a link to pull request 2.
@@ -189,7 +269,8 @@ JAP-2)` — and close the entry in the same commit that fixes it.
 
 ## Releases
 
-A user-visible change gets a version bump in three places, kept in step:
+A user-visible change gets a version bump in three places, kept in step (not on a branch that
+shares the queue with other agents, see Several agents at once):
 
 1. the `**Version X.Y.Z (title), D Mon YYYY.**` line at the top of `README.md`,
 2. a new row at the top of the Version history table in `README.md`,

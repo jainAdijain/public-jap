@@ -4,6 +4,10 @@ Each function is one Inngest step and returns ids, statuses or times only, never
 or resume text (Inngest stores step output). The application row is the record: the API
 changes it (Approve, an answer, Skip) and then sends an event, and apply-listing reads the
 row when it wakes, so a press that lands before the function starts waiting is not lost.
+
+Every step works for one user (PRD S7, S13): the one the event names, which is the
+session's (database/tenant.py). Their profile, resume, answer bank, daily cap and files are
+the ones used, and an application that is not theirs is not found.
 """
 
 import logging
@@ -14,32 +18,38 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
+from database import tenant
 from database.models import (
     Application,
+    AppUser,
     Company,
     Listing,
     Posting,
     Profile,
     ResumeVersion,
     Run,
-    WatchedBoard,
+    UserListing,
 )
 from llm import PersonalDataBlocked, SpendCapReached
 from llm.client import ModelCallError, OutOfCredits
 from observability import context
 from observability.logs import event
+from pipeline import storage
 from pipeline.apply import fields as rules
 from pipeline.apply import security_code
 from pipeline.apply.answers import bank_answer, draft_answer, pick_option
 from pipeline.apply.form import FormError, FormField, FormRead, Upload, read_form, submit_form
 from pipeline.cover_letter import LetterFailed, generate, upload_name, write_pdf
+from pipeline.limits import limits_for
 from pipeline.resume import sensitive_from_profile
 from pipeline.runs import in_scope, role_matcher
+from pipeline.workspace import follows, profile_of, set_status
+from pipeline.workspace import status_of as listing_status
 
 ACTIVE = ("preparing", "ready_for_review", "applying", "needs_input")
 CHOICE = ("select", "radio", "checkbox", "checkboxes")
@@ -51,12 +61,11 @@ class Stop(Exception):
     """Nothing to do for this listing (already applied, skipped, closed or busy)."""
 
 
-async def _listing_status(session: AsyncSession, listing_id: uuid.UUID, status: str) -> None:
-    await session.execute(update(Listing).where(Listing.id == listing_id).values(status=status))
-
-
 async def _app(session: AsyncSession, app_id: str, *, lock: bool = False) -> Application:
-    app = await session.get(Application, uuid.UUID(app_id), with_for_update=lock)
+    query = select(Application).where(
+        Application.id == uuid.UUID(app_id), Application.user_id == tenant.user_id(session)
+    )
+    app = await session.scalar(query.with_for_update() if lock else query)
     if app is None:
         raise Stop(f"application {app_id} not found")
     _bind(app)
@@ -82,9 +91,10 @@ MAYBE_SENT = (
 async def maybe_sent(session: AsyncSession, listing_id: uuid.UUID) -> bool:
     """The latest attempt failed after Submit was pressed, without knowing the outcome:
     trying again could apply twice, so I confirm I checked first."""
+    uid = tenant.user_id(session)
     last = await session.scalar(
         select(Application)
-        .where(Application.listing_id == listing_id)
+        .where(Application.listing_id == listing_id, Application.user_id == uid)
         .order_by(Application.created_at.desc())
         .limit(1)
     )
@@ -93,23 +103,20 @@ async def maybe_sent(session: AsyncSession, listing_id: uuid.UUID) -> bool:
 
 async def why_not(session: AsyncSession, listing_id: uuid.UUID) -> str | None:
     """None when the listing may be prepared now, else the reason it may not."""
+    uid = tenant.user_id(session)
     listing = await session.get(Listing, listing_id)
     if listing is None:
         return "No such listing"
-    if listing.status in ("applied", "skipped", "closed"):
-        return f"The job is {listing.status}"
+    status = await listing_status(session, listing_id)
+    if status in ("applied", "skipped", "closed"):
+        return f"The job is {status}"
+    mine = [Application.listing_id == listing_id, Application.user_id == uid]
     applied = await session.scalar(
-        select(Application.id).where(
-            Application.listing_id == listing_id, Application.status == "applied"
-        )
+        select(Application.id).where(*mine, Application.status == "applied")
     )
     if applied is not None:  # one company and role is one listing, reposts included
         return "You already applied for this job"
-    busy = await session.scalar(
-        select(Application.id).where(
-            Application.listing_id == listing_id, Application.status.in_(ACTIVE)
-        )
-    )
+    busy = await session.scalar(select(Application.id).where(*mine, Application.status.in_(ACTIVE)))
     if busy is not None:
         return "This job is already being prepared"
     primary = (
@@ -119,23 +126,36 @@ async def why_not(session: AsyncSession, listing_id: uuid.UUID) -> str | None:
     )
     if primary is None or primary.state != "open":
         return "The posting is closed"
-    resume = await session.scalar(select(ResumeVersion.id).where(ResumeVersion.is_active))
-    if resume is None:
+    if await active_resume(session) is None:
         return "Upload a resume in Profile first"
     return None
+
+
+async def active_resume(session: AsyncSession) -> ResumeVersion | None:
+    """The session user's resume that goes out with applications."""
+    found: ResumeVersion | None = await session.scalar(
+        select(ResumeVersion).where(
+            ResumeVersion.user_id == tenant.user_id(session), ResumeVersion.is_active
+        )
+    )
+    return found
 
 
 async def create_attempt(session: AsyncSession, listing_id: str, run_id: str | None) -> str:
     """check and create-attempt: the new application's id, or Stop."""
     lid = uuid.UUID(listing_id)
+    account = await session.get(AppUser, tenant.user_id(session))
+    if account is None or account.disabled_at is not None:  # turned off since it was queued
+        raise Stop("This account is turned off")
     reason = await why_not(session, lid)
     if reason:
         raise Stop(reason)
     listing = await session.get(Listing, lid)
-    profile = await session.scalar(select(Profile))
-    resume = await session.scalar(select(ResumeVersion).where(ResumeVersion.is_active))
+    profile = await profile_of(session)
+    resume = await active_resume(session)
     assert listing is not None and listing.primary_posting_id and resume is not None
     app = Application(
+        user_id=tenant.user_id(session),
         listing_id=lid,
         posting_id=listing.primary_posting_id,
         run_id=uuid.UUID(run_id) if run_id else None,
@@ -144,7 +164,7 @@ async def create_attempt(session: AsyncSession, listing_id: str, run_id: str | N
         attempts=1,
     )
     session.add(app)
-    listing.status = "applying"
+    await set_status(session, lid, "applying")
     try:
         await session.commit()
     except IntegrityError as exc:  # one_active_attempt: another attempt got there first
@@ -218,7 +238,7 @@ async def map_fields(session: AsyncSession, app_id: str) -> Mapped:
     app = await _app(session, app_id)
     if app.status not in ("preparing",):
         raise Stop(f"application is {app.status}")
-    profile = await session.scalar(select(Profile))
+    profile = await profile_of(session)
     listing = await session.get(Listing, app.listing_id)
     resume = await session.get(ResumeVersion, app.resume_version_id)
     assert listing is not None and resume is not None
@@ -358,7 +378,7 @@ async def settle(session: AsyncSession, app: Application, pending: list[dict[str
         app.status = "applying"
     else:
         app.status = "ready_for_review"
-    await _listing_status(session, app.listing_id, app.status)
+    await set_status(session, app.listing_id, app.status)
     if app.status == "needs_input" and app.run_id:
         await bump(session, app.run_id, "needs_input")
     elif app.status == "ready_for_review" and app.run_id:
@@ -385,13 +405,13 @@ async def set_letter(session: AsyncSession, app: Application, text: str, *, sour
     listing = await session.get(Listing, app.listing_id)
     assert listing is not None
     company = await session.get(Company, listing.company_id)
-    profile = await session.scalar(select(Profile))
+    profile = await profile_of(session)
     company_name = company.name if company else ""
     title = str((app.jd_snapshot or {}).get("title") or listing.title_display)
     app.cover_letter_text = text.strip()
     contact = " · ".join(v for v in [profile.email, profile.phone] if v) if profile else ""
     path = await write_pdf(
-        data_path("cover_letters", f"{app.id}.pdf"),
+        storage.user_path(app.user_id, "cover_letters", f"{app.id}.pdf"),
         app.cover_letter_text,
         name=(profile.full_name if profile else None) or "",
         contact=contact,
@@ -425,7 +445,7 @@ async def write_cover_letter(session: AsyncSession, app_id: str) -> dict[str, An
     if not fields or app.cover_letter_text:
         await settle(session, app, pending)
         return {"status": app.status, "letter": "not needed"}
-    profile = await session.scalar(select(Profile))
+    profile = await profile_of(session)
     listing = await session.get(Listing, app.listing_id)
     resume = await session.get(ResumeVersion, app.resume_version_id)
     assert listing is not None and resume is not None
@@ -482,7 +502,11 @@ async def status_of(session: AsyncSession, app_id: str) -> str:
 async def bump(session: AsyncSession, run_id: uuid.UUID, key: str, by: int = 1) -> None:
     """Add to a run's count (applied, failed, needs input, answers not drafted), as each
     attempt ends."""
-    run = await session.get(Run, run_id, with_for_update=True)
+    run = await session.scalar(
+        select(Run)
+        .where(Run.id == run_id, Run.user_id == tenant.user_id(session))
+        .with_for_update()
+    )
     if run is not None:
         counts = dict(run.counts or {})
         counts[key] = int(counts.get(key) or 0) + by
@@ -494,24 +518,42 @@ def local_midnight(now: datetime, tz: str) -> datetime:
     return local.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
+async def my_tz(session: AsyncSession) -> str:
+    """The zone the session user's day (and so their daily cap) is counted in."""
+    profile = await profile_of(session)
+    return (profile.tz if profile else None) or get_settings().jap_tz
+
+
 async def applied_today(session: AsyncSession, now: datetime) -> int:
-    since = local_midnight(now, get_settings().jap_tz)
+    """How many applications the session user has sent since their midnight."""
+    since = local_midnight(now, await my_tz(session))
     n = await session.scalar(
         select(func.count())
         .select_from(Application)
-        .where(Application.status == "applied", Application.submitted_at >= since)
+        .where(
+            Application.user_id == tenant.user_id(session),
+            Application.status == "applied",
+            Application.submitted_at >= since,
+        )
     )
     return int(n or 0)
 
 
+async def daily_cap(session: AsyncSession) -> int:
+    return (await limits_for(session, tenant.user_id(session))).applications_per_day
+
+
 async def wait_before_submit(session: AsyncSession, now: datetime) -> datetime | None:
-    """cap-check and the gap (A1): when submitting must wait until, or None to go now."""
+    """cap-check and the gap (A1), both the session user's own: when submitting must wait
+    until, or None to go now."""
     settings = get_settings()
-    profile = await session.scalar(select(Profile))
-    cap = profile.daily_cap if profile else 20
-    if await applied_today(session, now) >= cap:
-        return local_midnight(now, settings.jap_tz) + timedelta(days=1, minutes=1)
-    last: datetime | None = await session.scalar(select(func.max(Application.submitted_at)))
+    if await applied_today(session, now) >= await daily_cap(session):
+        return local_midnight(now, await my_tz(session)) + timedelta(days=1, minutes=1)
+    last: datetime | None = await session.scalar(
+        select(func.max(Application.submitted_at)).where(
+            Application.user_id == tenant.user_id(session)
+        )
+    )
     gap = timedelta(seconds=settings.jap_apply_gap_seconds)
     if last is not None and now - last < gap:
         return last + gap
@@ -524,10 +566,6 @@ def _file_letters(app: Application) -> list[str]:
 
 class SubmitRetry(Exception):
     """Submit failed before the button was pressed: safe to try again."""
-
-
-def data_path(*parts: str) -> Path:
-    return Path(get_settings().jap_data_dir).joinpath(*parts)
 
 
 async def submit(session: AsyncSession, app_id: str) -> dict[str, Any]:
@@ -564,11 +602,19 @@ async def submit(session: AsyncSession, app_id: str) -> dict[str, Any]:
         assert app.cover_letter_path is not None
         name = answers.get(key) or "Cover-Letter.pdf"
         files[key] = Upload(Path(app.cover_letter_path), name, "application/pdf")
-    shot = data_path("screenshots", f"{app_id}.png")
-    trace = data_path("traces", f"{app_id}.zip")
+    shot = storage.user_path(app.user_id, "screenshots", f"{app_id}.png")
+    trace = storage.user_path(app.user_id, "traces", f"{app_id}.zip")
     site = security_code.site_of(url)
     settings = get_settings()
-    reads_mail = site is not None and bool(settings.email_from and settings.email_password)
+    # Only the admin's mailbox is read (A5): the code a job site emails goes to the address
+    # on the form, and JAP can open only its own mailbox, which is the admin's.
+    account = await session.get(AppUser, app.user_id)
+    reads_mail = (
+        site is not None
+        and bool(settings.email_from and settings.email_password)
+        and account is not None
+        and account.is_admin
+    )
     get_code = security_code.waiter(site) if reads_mail and site else None
     result = await submit_form(url, fields, answers, files, shot, trace, get_code)
     app = await _app(session, app_id, lock=True)
@@ -592,11 +638,7 @@ async def submit(session: AsyncSession, app_id: str) -> dict[str, Any]:
     app.trace_path = str(trace) if trace.exists() else None
     app.pending_questions = None
     app.error = None
-    await session.execute(
-        update(Listing)
-        .where(Listing.id == app.listing_id)
-        .values(status="applied", applied_at=submitted)
-    )
+    await set_status(session, app.listing_id, "applied", applied_at=submitted)
     if app.run_id:
         await bump(session, app.run_id, "applied")
     await session.commit()
@@ -611,16 +653,18 @@ async def fail(session: AsyncSession, app: Application, error: str) -> None:
     event(log, "apply.failed", f"Application failed: {error}", level=logging.WARNING, keep=True)
     app.status = "failed"
     app.error = error[:1000]
-    await _listing_status(session, app.listing_id, "failed")
+    await set_status(session, app.listing_id, "failed")
     if app.run_id:
         await bump(session, app.run_id, "failed")
     await session.commit()
 
 
 async def fail_by_id(session: AsyncSession, app_id: str, error: str) -> None:
-    app = await session.get(Application, uuid.UUID(app_id), with_for_update=True)
-    if app is not None:
-        await fail(session, app, error)
+    try:
+        app = await _app(session, app_id, lock=True)
+    except Stop:
+        return
+    await fail(session, app, error)
 
 
 async def expire(session: AsyncSession, app_id: str, what: str) -> None:
@@ -631,7 +675,7 @@ async def expire(session: AsyncSession, app_id: str, what: str) -> None:
 async def read_and_save(session: AsyncSession, app_id: str, url: str) -> int:
     """read-form: open the form with Playwright and keep its fields. A FormError keeps a
     screenshot of the page on the application (U15), then Inngest retries the step."""
-    shot = data_path("screenshots", f"{app_id}.png")
+    shot = storage.user_path(tenant.user_id(session), "screenshots", f"{app_id}.png")
     try:
         read = await read_form(url, shot)
     except FormError:
@@ -664,31 +708,30 @@ async def pick(session: AsyncSession, run_id: str) -> list[str]:
     or with Skills not stated, stays Not applied on the list for me to apply by hand. With
     no required skills, or a bar of 0, there is nothing to measure and every job is picked.
     Review mode prepares for me to read first, so the bar does not apply there."""
-    run = await session.get(Run, uuid.UUID(run_id))
-    profile = await session.scalar(select(Profile))
+    uid = tenant.user_id(session)
+    run = await session.scalar(select(Run).where(Run.id == uuid.UUID(run_id), Run.user_id == uid))
+    profile = await profile_of(session)
     if run is None or run.mode != "find_and_apply":
         return []
-    if await session.scalar(select(ResumeVersion.id).where(ResumeVersion.is_active)) is None:
+    if await active_resume(session) is None:
         return []
-    left = (profile.daily_cap if profile else 20) - await applied_today(session, datetime.now(UTC))
+    left = await daily_cap(session) - await applied_today(session, datetime.now(UTC))
     if left <= 0:
         return []
-    watched = (
-        select(Posting.listing_id)
-        .join(WatchedBoard, WatchedBoard.id == Posting.watched_board_id)
-        .where(WatchedBoard.active)
-    )
+    watched = select(Posting.listing_id).where(Posting.watched_board_id.in_(follows(uid)))
     where = [
-        Listing.matched.is_not(None),
-        Listing.status == "not_applied",
+        UserListing.user_id == uid,
+        UserListing.matched.is_not(None),
+        UserListing.status == "not_applied",
         Listing.id.in_(watched),
         Posting.state == "open",
     ]
     bar = skills_bar(profile)
     if bar:
-        where.append(Listing.required_pct >= bar)
+        where.append(UserListing.required_pct >= bar)
     rows = await session.scalars(
         select(Listing)
+        .join(UserListing, UserListing.listing_id == Listing.id)
         .join(Posting, Posting.id == Listing.primary_posting_id)
         .where(*where)
         .order_by(Listing.last_posted_at.desc().nulls_last())

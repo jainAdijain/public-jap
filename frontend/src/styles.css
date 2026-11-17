@@ -259,6 +259,10 @@ table.jobs tbody tr.closed .t-title { color: var(--muted); }
 .health i.ok { background: var(--sent-fg); }
 .health i.bad { background: var(--fail-fg); }
 .health .hd { min-width: 0; overflow-wrap: anywhere; }
+.accounts .hrow { grid-template-columns: 10px minmax(0, 1fr) minmax(0, 2fr) auto; }
+.accounts .hrow b { min-width: 0; overflow-wrap: anywhere; }
+.accounts .hrow { grid-template-columns: 10px minmax(0, 1fr) minmax(0, 2fr) auto auto; }
+.limits { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 6px 0 10px; }
 .meter { height: 6px; border-radius: 3px; background: var(--new-bg); overflow: hidden; }
 .meter span { display: block; height: 100%; background: var(--accent); }
 .meter.full span { background: var(--fail-fg); }
@@ -326,6 +330,8 @@ details > summary { cursor: pointer; }
 .auth-field small { font-weight: 400; }
 .auth-submit { justify-content: center; width: 100%; }
 .auth-form .btn-link { justify-self: start; }
+.auth-form p { margin: 0; }
+.auth-human { min-height: 65px; }
 .side-user { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--side-hi); }
 .side-user > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .side-signout, .side-signout:hover:not(:disabled) { color: var(--side-strong); font-size: 12px; }

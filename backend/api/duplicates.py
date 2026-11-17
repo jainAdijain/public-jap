@@ -1,4 +1,5 @@
-"""Possible duplicates (Near match): borderline pairs I merge or keep apart."""
+"""Possible duplicates (Near match): borderline pairs to merge or keep apart. Listings are
+shared, so deciding is the admin's (main.py; PRD S7) and applies to everyone's list."""
 
 import uuid
 
@@ -10,6 +11,7 @@ from api.listings import platforms, postings_of
 from database.models import Company, Listing, PossibleDuplicate
 from database.session import Session
 from pipeline.dedup import DedupConflict, decide_duplicate
+from pipeline.matching import refilter_users
 from schemas.listing import DecisionIn, DuplicateOut, DuplicateSide
 
 router = APIRouter(prefix="/duplicates", tags=["duplicates"])
@@ -60,7 +62,11 @@ async def duplicates(session: Session) -> list[DuplicateOut]:
 @router.post("/{dup_id}", status_code=204)
 async def decide(dup_id: uuid.UUID, body: DecisionIn, session: Session) -> None:
     try:
+        pair = await session.get(PossibleDuplicate, dup_id)
+        ids = [pair.a_id, pair.b_id] if pair is not None else []
         await decide_duplicate(session, dup_id, body.decision)
+        await refilter_users(session, ids)
+        await session.commit()
     except LookupError as exc:
         raise ApiError(404, "not_found", str(exc)) from exc
     except DedupConflict as exc:

@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+# Turned on once per clone with `make hooks`. The same check runs in CI for clones without it.
+exec infra/scripts/check-tracked.sh --staged

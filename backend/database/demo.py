@@ -9,6 +9,8 @@ work mode is unclear, and one in Berlin. Embeddings and extracted fields are wri
 directly, so loading costs nothing and needs no Ollama or model key. Skills go through
 skill_alias as enrichment does (postgresql is stored as postgres), so each demo job's skills
 match (F5) reads as a real one would. make demo-clear removes all of it.
+
+The demo boards are followed for the admin, whose list they then show in (PRD S7).
 """
 
 import asyncio
@@ -19,14 +21,17 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, select, text
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import DedupOverride, Posting, WatchedBoard
+from database import tenant
+from database.models import BoardFollow, DedupOverride, Posting, WatchedBoard
 from database.session import get_sessionmaker
 from pipeline.dedup import dedup, refresh_listings
 from pipeline.ingest import html_to_text
-from pipeline.matching import refilter_from_profile
+from pipeline.matching import listed_count, refilter_users
 from pipeline.resume import normalize_skills, skill_aliases
+from pipeline.workspace import admin_id
 
 COMPANY = "JAP Demo Co"
 TOKEN = "jap-demo"
@@ -91,6 +96,14 @@ async def _board(session: AsyncSession, ats: str, token: str, name: str) -> Watc
         session.add(board)
     board.active = True
     await session.flush()
+    admin = await admin_id(session)
+    if admin is not None:
+        stmt = insert(BoardFollow).values(user_id=admin, board_id=board.id, active=True)
+        await session.execute(
+            stmt.on_conflict_do_update(
+                index_elements=["user_id", "board_id"], set_={"active": True}
+            )
+        )
     return board
 
 
@@ -138,7 +151,14 @@ async def _add(
 
 
 async def load() -> str:
+    with tenant.as_system():
+        return await _load()
+
+
+async def _load() -> str:
     async with get_sessionmaker()() as session:
+        if await admin_id(session) is None:
+            return "Create your JAP account first: the demo jobs are loaded into the admin's list."
         boards = {a: await _board(session, a, TOKEN, COMPANY) for a in ("greenhouse", "lever")}
         aliases = await skill_aliases(session)
         for ats, ext, title, locations, days, body, cosine in POSTINGS:
@@ -169,7 +189,10 @@ async def load() -> str:
                        extracted, _axis(k))  # fmt: skip
         await session.commit()
         counts = await dedup(session)
-        listed = await refilter_from_profile(session)
+        admin = await admin_id(session)
+        assert admin is not None
+        await refilter_users(session)
+        listed = await listed_count(session, admin)
         await session.commit()
     return (
         f"Loaded {COMPANY} and {FILTER_COMPANY}: {counts.placed} postings placed, "
@@ -179,6 +202,11 @@ async def load() -> str:
 
 
 async def clear() -> str:
+    with tenant.as_system():
+        return await _clear()
+
+
+async def _clear() -> str:
     async with get_sessionmaker()() as session:
         board_ids = list(
             await session.scalars(select(WatchedBoard.id).where(WatchedBoard.origin == "demo"))
@@ -196,6 +224,7 @@ async def clear() -> str:
             await session.delete(p)
         await session.flush()
         await refresh_listings(session, listing_ids)  # removes the emptied listings
+        await session.execute(delete(BoardFollow).where(BoardFollow.board_id.in_(board_ids)))
         await session.execute(delete(WatchedBoard).where(WatchedBoard.id.in_(board_ids)))
         await session.execute(
             text(

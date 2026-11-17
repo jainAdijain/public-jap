@@ -18,7 +18,7 @@ const REMOTE_WORD = /^(remote|anywhere|worldwide|global|wfh|work from home)$/i
 const joinOr = (items: string[]) => (items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`)
 
 function Companies() {
-  const { toast, refresh } = useApp()
+  const { toast, refresh, profile } = useApp()
   const [boards, setBoards] = useState<Board[]>([])
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -78,6 +78,11 @@ function Companies() {
       <div className="sec-l">
         <h2>Companies to follow</h2>
         <p>JAP searches these companies’ career pages. Greenhouse, Lever and Ashby are supported. Changes here save straight away.</p>
+        {profile?.plan.boards != null && (
+          <p className="muted small">
+            Your plan follows {profile.plan.boards} {profile.plan.boards === 1 ? 'company' : 'companies'}.
+          </p>
+        )}
       </div>
       <div className="sec-r">
         <form

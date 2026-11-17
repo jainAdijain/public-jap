@@ -24,7 +24,17 @@ class Settings(BaseSettings):
     jap_embed_dim: int = 768
     ollama_base_url: str = "http://host.docker.internal:11434"
 
-    jap_monthly_cost_cap_usd: float = 2.0
+    # AI spend a month (PRD S12): each user's allowance, the service's own budget for
+    # reading shared job postings, and the limit on everything together.
+    jap_monthly_cost_cap_usd: float = 1.0
+    jap_system_cost_cap_usd: float = 5.0
+    jap_total_cost_cap_usd: float = 20.0
+    # The free plan (pipeline/limits.py): companies one account may follow, and applications
+    # it may send a day. The admin is not held to either, and can set any one account's own
+    # numbers in Settings > Accounts. The AI allowance above is sized to go with them: an
+    # application costs about 2 to 3 cents of AI, so one a day is under $1 a month.
+    jap_free_boards: int = 1
+    jap_free_daily_applications: int = 1
 
     # The mailbox JAP sends from (E4): any SMTP server with a password, GoDaddy Professional
     # Email by default. A local test mailbox can take plain SMTP (SMTP_SSL=false) instead.
@@ -68,6 +78,18 @@ class Settings(BaseSettings):
     jap_admin_email: str = ""
     jap_session_idle_days: int = 7
     jap_session_max_days: int = 30
+
+    # Sign-up (PRD S1, S10). Tries allowed in an hour from one address and for one email, on
+    # sign-up, forgot password and "send the link again" (auth/limits.py).
+    jap_auth_tries_per_hour_ip: int = 20
+    jap_auth_tries_per_hour_email: int = 5
+    # The header a trusted proxy puts the visitor's address in (CF-Connecting-IP behind the
+    # Cloudflare Tunnel). Empty: the connection's own address. Never set it without a proxy
+    # that overwrites the header, or anyone can claim any address.
+    jap_client_ip_header: str = ""
+    # Cloudflare Turnstile on sign-up and forgot password. Both empty: no check (local).
+    turnstile_site_key: str = ""
+    turnstile_secret_key: str = ""
 
     # Logging (PRD O1 to O4). LOG_JSON=false prints plain lines, easier to read by eye in dev.
     log_level: str = "INFO"

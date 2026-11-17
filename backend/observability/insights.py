@@ -8,6 +8,9 @@
   application
 Everything is counted from the tables JAP already keeps; nothing new is recorded for it.
 Replies from employers are not known to JAP yet, so the funnel ends at Sent.
+
+Each user sees their own (PRD S7): the jobs found on companies they follow, their matches,
+their applications and what their own allowance was spent on. Every statement names :uid.
 """
 
 from datetime import UTC, date, datetime, timedelta
@@ -18,23 +21,32 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
+from database import tenant
 from llm.spend import month_start
 from schemas.status import FunnelWeek, Insights, MonthSpend, SourceRow, SpendRow
 
 FUNNEL_SQL = """
 WITH f AS (
-    SELECT date_trunc('week', created_at AT TIME ZONE :tz)::date AS week,
-           count(*) AS found, count(*) FILTER (WHERE matched IS NOT NULL) AS matched
-    FROM listing WHERE created_at >= :since GROUP BY 1
+    SELECT date_trunc('week', l.created_at AT TIME ZONE :tz)::date AS week,
+           count(*) AS found, count(*) FILTER (WHERE ul.matched IS NOT NULL) AS matched
+    FROM listing l
+    LEFT JOIN user_listing ul ON ul.listing_id = l.id AND ul.user_id = :uid
+    WHERE l.created_at >= :since
+      AND (ul.listing_id IS NOT NULL OR EXISTS (
+        SELECT 1 FROM posting fp JOIN board_follow bf ON bf.board_id = fp.watched_board_id
+        WHERE fp.listing_id = l.id AND bf.user_id = :uid AND bf.active))
+    GROUP BY 1
 ), p AS (
     SELECT date_trunc('week', created_at AT TIME ZONE :tz)::date AS week, count(*) AS prepared
-    FROM application WHERE created_at >= :since GROUP BY 1
+    FROM application WHERE user_id = :uid AND created_at >= :since GROUP BY 1
 ), a AS (
     SELECT date_trunc('week', submitted_at AT TIME ZONE :tz)::date AS week, count(*) AS applied
-    FROM application WHERE status = 'applied' AND submitted_at >= :since GROUP BY 1
+    FROM application
+    WHERE user_id = :uid AND status = 'applied' AND submitted_at >= :since GROUP BY 1
 ), x AS (
     SELECT date_trunc('week', updated_at AT TIME ZONE :tz)::date AS week, count(*) AS failed
-    FROM application WHERE status = 'failed' AND updated_at >= :since GROUP BY 1
+    FROM application
+    WHERE user_id = :uid AND status = 'failed' AND updated_at >= :since GROUP BY 1
 )
 SELECT week, coalesce(f.found, 0) AS found, coalesce(f.matched, 0) AS matched,
        coalesce(p.prepared, 0) AS prepared, coalesce(a.applied, 0) AS applied,
@@ -46,15 +58,19 @@ SOURCES_SQL = """
 WITH p AS (
     SELECT source::text AS source, count(*) AS postings,
            count(DISTINCT listing_id) FILTER (
-               WHERE listing_id IN (SELECT id FROM listing WHERE matched IS NOT NULL)
+               WHERE listing_id IN (SELECT listing_id FROM user_listing
+                                    WHERE user_id = :uid AND matched IS NOT NULL)
            ) AS matched
-    FROM posting WHERE first_seen_at >= :since GROUP BY 1
+    FROM posting
+    WHERE first_seen_at >= :since AND watched_board_id IN (
+        SELECT board_id FROM board_follow WHERE user_id = :uid AND active)
+    GROUP BY 1
 ), a AS (
     SELECT po.source::text AS source,
            count(*) FILTER (WHERE ap.status = 'applied') AS applied,
            count(*) FILTER (WHERE ap.status = 'failed') AS failed
     FROM application ap JOIN posting po ON po.id = ap.posting_id
-    WHERE ap.created_at >= :since GROUP BY 1
+    WHERE ap.user_id = :uid AND ap.created_at >= :since GROUP BY 1
 )
 SELECT source, coalesce(p.postings, 0) AS postings, coalesce(p.matched, 0) AS matched,
        coalesce(a.applied, 0) AS applied, coalesce(a.failed, 0) AS failed
@@ -65,22 +81,24 @@ FAILURES_SQL = """
 SELECT po.source::text AS source, left(coalesce(ap.error, 'unknown'), 90) AS reason,
        count(*) AS n
 FROM application ap JOIN posting po ON po.id = ap.posting_id
-WHERE ap.status = 'failed' AND ap.created_at >= :since
+WHERE ap.user_id = :uid AND ap.status = 'failed' AND ap.created_at >= :since
 GROUP BY 1, 2 ORDER BY 1, 3 DESC
 """
 
 SPEND_SQL = """
 SELECT purpose, model, count(*) AS calls, coalesce(sum(cost_usd), 0) AS cost
-FROM llm_call WHERE created_at >= :since GROUP BY 1, 2 ORDER BY cost DESC, calls DESC
+FROM llm_call WHERE user_id = :uid AND created_at >= :since
+GROUP BY 1, 2 ORDER BY cost DESC, calls DESC
 """
 
 MONTHS_SQL = """
 WITH s AS (
     SELECT to_char(created_at AT TIME ZONE :tz, 'YYYY-MM') AS month, sum(cost_usd) AS cost
-    FROM llm_call WHERE created_at >= :since GROUP BY 1
+    FROM llm_call WHERE user_id = :uid AND created_at >= :since GROUP BY 1
 ), a AS (
     SELECT to_char(submitted_at AT TIME ZONE :tz, 'YYYY-MM') AS month, count(*) AS applied
-    FROM application WHERE status = 'applied' AND submitted_at >= :since GROUP BY 1
+    FROM application
+    WHERE user_id = :uid AND status = 'applied' AND submitted_at >= :since GROUP BY 1
 )
 SELECT month, coalesce(s.cost, 0) AS cost, coalesce(a.applied, 0) AS applied
 FROM s FULL JOIN a USING (month)
@@ -104,11 +122,12 @@ async def _rows(session: AsyncSession, sql: str, **params: Any) -> list[Any]:
 
 async def insights(session: AsyncSession, weeks: int = 8, now: datetime | None = None) -> Insights:
     tz = get_settings().jap_tz
+    uid = tenant.user_id(session)
     now = now or datetime.now(UTC)
     first = _monday(now.astimezone(ZoneInfo(tz)).date()) - timedelta(weeks=weeks - 1)
     since = datetime.combine(first, datetime.min.time(), tzinfo=ZoneInfo(tz))
 
-    by_week = {r.week: r for r in await _rows(session, FUNNEL_SQL, tz=tz, since=since)}
+    by_week = {r.week: r for r in await _rows(session, FUNNEL_SQL, tz=tz, since=since, uid=uid)}
     funnel: list[FunnelWeek] = []
     for i in range(weeks):
         wk = first + timedelta(weeks=i)
@@ -133,11 +152,11 @@ async def insights(session: AsyncSession, weeks: int = 8, now: datetime | None =
     )
 
     reasons: dict[str, list[str]] = {}
-    for r in await _rows(session, FAILURES_SQL, since=since):
+    for r in await _rows(session, FAILURES_SQL, since=since, uid=uid):
         if len(reasons.setdefault(r.source, [])) < 3:
             reasons[r.source].append(f"{r.reason} ({r.n})")
     sources = []
-    for r in await _rows(session, SOURCES_SQL, since=since):
+    for r in await _rows(session, SOURCES_SQL, since=since, uid=uid):
         done = int(r.applied) + int(r.failed)
         sources.append(
             SourceRow(
@@ -154,10 +173,10 @@ async def insights(session: AsyncSession, weeks: int = 8, now: datetime | None =
     month0 = month_start(tz)
     spend = [
         SpendRow(purpose=r.purpose, model=r.model, calls=int(r.calls), cost_usd=float(r.cost))
-        for r in await _rows(session, SPEND_SQL, since=month0)
+        for r in await _rows(session, SPEND_SQL, since=month0, uid=uid)
     ]
     six = _months_back(month0, 5)
-    by_month = {r.month: r for r in await _rows(session, MONTHS_SQL, tz=tz, since=six)}
+    by_month = {r.month: r for r in await _rows(session, MONTHS_SQL, tz=tz, since=six, uid=uid)}
     months = []
     for i in range(6):
         key = _months_back(month0, 5 - i).strftime("%Y-%m")

@@ -1,10 +1,11 @@
 # JAP: Job Application Pipeline
 
-**Version 0.18.1 (typed settings save on Enter), 13 Nov 2026.**
+**Version 0.19.0 (each user's own data, open sign-up), 17 Nov 2026.**
 
 JAP watches the public job boards of the companies you pick (Greenhouse, Lever and Ashby),
 lists the jobs that match your profile, and prepares or submits applications for you to review.
-It is a personal, single-user tool today: one account, one profile, one resume (see
+Anyone can create an account, and each account has its own private workspace: profile,
+resume, companies, answers, searches and applications (see
 [Sign-in and accounts](#sign-in-and-accounts)).
 The [JAP PRD](https://claude.ai/artifact/WL9RYjsPDCTmknMLRqzKRj) is the single source of truth;
 the [build plan](https://claude.ai/artifact/1TrqC2jt8SuPVbULa8i6eU) and the
@@ -68,16 +69,61 @@ split into Profile and Job preferences, and the Runs and Status cards are in Set
 Every page and every `/api` route is behind sign-in (PRD 1.18, S1 to S9); only `/api/health`
 and `/api/auth/*` answer without a session.
 
-**One account, one person.** JAP today holds a single person's data: one profile, one active
-resume, one answer bank, one set of jobs. No table outside `app_user`, `auth_session` and
-`password_reset` carries a user id, so a second account would read and change all of it, and
-would apply to jobs under your name and with your resume. Sign-up is therefore closed after
-the first account and there are no invites. Several people each with their own data is PRD
-1.18 step 2 (S7 in full, then S10 to S13), and it needs a user id on every table first.
+**Each account has its own data (PRD 1.18 step 2: S7, S10, S12, S13).** Facts about jobs
+are shared and everything about a person is private.
 
-- **First account.** On a fresh JAP the sign-in screen offers Create your JAP account. That
-  account is the admin, and sign-up then closes: `POST /api/auth/sign-up` answers 409
-  `sign_up_closed` from then on. Set `JAP_ADMIN_EMAIL` in `.env` to allow only your address.
+| Shared, fetched and read once | Private, one per account |
+| --- | --- |
+| companies and their boards, postings, listings (the facts: title, locations, skills, work mode), duplicates | profile and job preferences, resumes, answer bank, which companies you follow (`board_follow`), what each job is to you (`user_listing`: matched, skills match, status), searches, applications and their files, AI spend |
+
+So when two people follow the same company it is fetched once and each description is read
+by the AI once; each person's own filter then makes their own list, from the companies they
+follow only. Hiding a job, applying to it or unfollowing its company changes your list and
+nobody else's.
+
+The check is made twice. Every route and every background job works for one user, and an id
+that belongs to someone else answers Not Found, the same as an id that does not exist. Then
+Postgres repeats it: the app runs as a role that owns nothing (`jap_app`), every transaction
+names its user (`app.user_id`), and row-level security on every private table returns only
+that user's rows, so a query that forgot its filter returns nothing rather than someone
+else's data. Only work on shared data (fetching, reading postings, dedup, the admin's
+screens) runs as the service (`backend/database/tenant.py`, migration `0013_rls`).
+
+- **Creating an account.** Anyone can, from the sign-in screen. The first account on a fresh
+  JAP is the admin and goes straight in; set `JAP_ADMIN_EMAIL` in `.env` to allow only your
+  address for it. Every account after that gets an emailed link (single use, 24 hours) and
+  sees Check your email, with Send again, until it is opened. The answer is the same whether
+  or not the address already has an account. A new account starts empty: the admin's
+  companies are not copied to it.
+- **Limits on sign-up.** Sign-up, forgot password and Send again are limited per visitor
+  address and per email (`JAP_AUTH_TRIES_PER_HOUR_IP`, `JAP_AUTH_TRIES_PER_HOUR_EMAIL`); past
+  the limit the answer is 429. Behind the Cloudflare Tunnel set
+  `JAP_CLIENT_IP_HEADER=CF-Connecting-IP`, or every visitor shares the tunnel's address. Set
+  `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` to add Cloudflare's "prove you're human"
+  check to sign-up and forgot password.
+- **The admin** (Settings > Accounts) sees each account's address, when it joined and last
+  signed in, its state and its AI spend this month, never anything a user wrote. The admin can
+  turn an account off (it is signed out everywhere and its searches and applications stop;
+  its data is kept) or on again, and pause sign-up. System status, Health, backups, form
+  tests and deciding duplicates are the admin's too; to anyone else those routes are Not Found.
+- **The free plan** is what every account but the admin's gets: 1 company to follow
+  (`JAP_FREE_BOARDS`), 1 application a day (`JAP_FREE_DAILY_APPLICATIONS`) and $1 of AI a
+  month (`JAP_MONTHLY_COST_CAP_USD`; an application costs about 2 to 3 cents of AI, so one a
+  day stays under it). Settings shows it as **Your plan**, and Job preferences says how many
+  companies the plan follows. The admin can give any one account its own numbers for all
+  three (Settings > Accounts > Limits; an empty box is the plan's number) and is not held to
+  the plan themselves. A user can lower their own AI limit and daily cap, never raise them.
+- **AI limits.** An account's allowance pays for work done for it: parsing its resume,
+  drafting answers, writing cover letters. Reading shared job descriptions is billed to the
+  service instead (`JAP_SYSTEM_COST_CAP_USD`), which users never see, and everything together
+  stops at `JAP_TOTAL_COST_CAP_USD`. One person reaching their allowance stops only them. A
+  description is read only when its title is in a target role of someone who follows that
+  company.
+- **Files** (resumes, cover letters, screenshots, traces) are written under
+  `data/users/<user id>/` and served only through the row that owns them. Files from before
+  this keep their old paths and are served the same way.
+- **Data from before.** Everything that existed when this was applied belongs to the admin
+  (migration `0011_tenancy`).
 - **Passwords** are at least 12 characters and stored as salted scrypt hashes. Five wrong
   tries lock that account's sign-in for 15 minutes.
 - **Forgot password** emails a single-use link, good for 30 minutes, from the mailbox in
@@ -96,8 +142,9 @@ the first account and there are no invites. Several people each with their own d
 No name, email, phone, address or profile link is sent to any model. `backend/llm/redact.py`
 swaps them for placeholders such as `[NAME]`, a guard blocks any request that still contains
 one, and `backend/llm/client.py` is the only code that talks to OpenRouter (a test enforces
-it). Each call is logged in `llm_call` with its cost; model steps stop once this month's
-spend reaches `JAP_MONTHLY_COST_CAP_USD`.
+it). Each call is logged in `llm_call` with its cost and whose allowance paid; model steps
+stop once this month's spend reaches that limit (AI limits, above). Reading a shared job
+posting uses no user's details at all: its text is redacted generically.
 
 ## Fetching jobs
 
@@ -194,13 +241,16 @@ job in Berlin. Runs skip demo boards; `make demo-clear` removes them.
 
 ## What starts a run
 
-Four things start a run, and only one run is active at a time. A trigger that fires during a
-run queues one run behind it; more triggers join that queued run instead of adding another
-(a role-scoped ask widens the queued run's scope).
+Four things start a run. A run is one account's: it fetches the companies that account
+follows and applies with its settings. Only one run is active at a time across the whole
+service, so runs take turns. A trigger that fires during a run queues one run behind it for
+that account; more triggers join that queued run instead of adding another (a role-scoped
+ask widens the queued run's scope).
 
 - **Find new jobs** on Jobs: every company you follow. The arrow beside it searches for only
-  some job titles (only those jobs are stored, updated or closed) and can also apply to the
-  new jobs that fit (see Applying).
+  some job titles and can also apply to the new jobs that fit (see Applying). The companies
+  are still fetched whole, because their jobs are shared with anyone else who follows them;
+  the titles narrow what the run applies for.
 - **Daily search**: the switch in Settings, at 06:00 in `JAP_TZ` unless you change the time
   next to it. An Inngest cron ticks every minute and fires once per day in the first five
   minutes after that time, so a run missed while the Mac sleeps is skipped, not caught up.
@@ -479,7 +529,10 @@ There is no promotion step: live runs whatever this checkout builds.
 | `make logs` / `make ps` | Follow logs / list services |
 | `make migrate` | `alembic upgrade head` in the app container |
 | `make seed` | Load `seed/companies.yaml` and `seed/skills.yaml` |
-| `make test` | ruff, mypy, pytest for app; lint and build for ui |
+| `make test` | ruff, mypy, pytest for app; lint and build for ui; the coding-agent guards (`make test-agents`) |
+| `make setup-host` / `make test-host` | The same checks without the Docker stack, for cloud sandboxes: set up `.venv`, Chromium, `node_modules` and a Postgres once, then run them |
+| `make worktree NAME=...` | A sibling worktree on its own branch with its own stack, ports and `data/`, for an agent working alongside you; `worktree-list` and `worktree-remove NAME=...` go with it |
+| `make hooks` | Turn on the pre-commit check for this clone: refuses secrets files, `docs/`, `data/` and anything that looks like a key |
 | `make backup` / `make restore FILE=...` | Dump to / restore from `data/backups/` (the app also makes one every day) |
 | `make close-unfollowed` | List open postings of companies you no longer follow; `APPLY=1` closes them (back up first) |
 | `make code-mail-check` | Log in to the mailbox over IMAP and count the Greenhouse emails it holds (security codes, PRD A5) |
@@ -509,13 +562,16 @@ backend/            main.py, config.py, schemas/, database/ (+ migrations/), api
                     sources/, pipeline/, llm/, functions/ (Inngest), tests/
 frontend/           src/pages, src/components, src/api
 data/               gitignored: resumes, screenshots, cover letters, backups
-.github/workflows/  CI: ruff, mypy, pytest; ui lint and build; compose config check
+.github/workflows/  CI: ruff, mypy, pytest; ui lint and build; compose config check; agent guards
+AGENTS.md           the rules for coding agents; CLAUDE.md, .devin/, .claude/, .gemini/ and
+                    .cursorignore only point at it and enforce it (AGENTS.md, Harnesses)
 ```
 
 ## Version history
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.19.0 | 17 Nov 2026 | Each user's own data and open sign-up (PRD 1.18 step 2: S7, S10, S12, S13). Facts about jobs stay shared and everything about a person is private: every private table carries a `user_id`, and `board_follow` and `user_listing` hold the personal half of what sat on shared rows (migration `0011_tenancy`; existing data goes to the admin). Every route and background job works for one user and another user's id answers Not Found; Postgres repeats the check with row-level security (`0013_rls`). A company two people follow is fetched once and each description is read by the AI once; a role-scoped search stores the whole board, reading a posting uses no profile details, and Merge and Not the same job are the admin's. Anyone can create an account and confirms the address by an emailed link (`0012_email_verify`), with limits per address and per email and optional Cloudflare Turnstile. The free plan is 1 company, 1 application a day and $1 of AI a month, shown in Settings as Your plan; the admin can set any one account's own limits (`0014_account_limits`), turn an account off and pause sign-up from Settings > Accounts. Reading shared descriptions has the service's own budget and a total limit spans everything. System status, Health, backups, form tests and duplicates are the admin's. Files are written under `data/users/<user id>/` |
 | 0.18.1 | 13 Nov 2026 | Fix the four settings you type rather than tick saving only when the field lost focus (JAP-6). Settings says changes save straight away, and every radio and switch does, but "Send at most N applications a day", "Only jobs with at least N% of my required skills", the daily search time and the monthly AI limit waited for a click somewhere else: Enter did nothing at all and there was no button, so a typed number looked ignored. Enter saves now, so does a Save button that appears beside the field as soon as the value differs from the saved one, Escape forgets the edit, and leaving the field still saves so nothing typed is lost. What was typed stays on screen until the save comes back, instead of showing the old value again in between |
 | 0.18.0 | 13 Nov 2026 | Skills match instead of a skills filter (PRD 1.21, F5, F6, U15, U17, U18). Skills never hide a job: the Skills condition and the third Matching choice are gone, so matching is job title and location only, and the default rule is job title and location everywhere (the code fallback and the API default used to be any one of title, skills or location). Every job gets a skills match in the same SQL pass as the filters (migration `0010_skills_match`: `listing.required_hit`, `nice_hit`, `required_pct`): Required x of y with the percentage and the missing skills, Nice to have x of y, and Skills not stated when the description gave none, which is unknown and never 0. Jobs has a Skills match column that sorts, and a minimum filter (`sort=skills`, `min_skills`); the job panel lists the skills behind it. Automatic mode picks only jobs at or above a required-skills bar, 60% by default, set on Settings (`profile.auto_apply_min_skills`); the rest stay listed. A rule saved earlier with skills keeps its other conditions. |
 | 0.17.1 | 13 Nov 2026 | Fix a job whose title is wider than the Job title column showing as nothing but `...` (JAP-5). The title is a button so it can be opened from the keyboard, and a button is `display: inline-flex`, which makes it an atomic inline box: `text-overflow` can shorten text but cannot cut into one. Chrome therefore dropped the whole button and drew the ellipsis in its place, so the row lost its title entirely while the side panel still showed it. The row is a flex line now and the button shortens its own text, so a long title reads "Applied AI Architect, Democrati…" |

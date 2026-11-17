@@ -26,6 +26,7 @@ from pipeline.runs import embeddings_pending
 from pipeline.unfollow import close_leftovers
 from sources import greenhouse
 from tests import boards as b
+from tests import mine
 
 GH = "https://boards-api.greenhouse.io/v1/boards"
 URL = f"{GH}/discord/jobs"
@@ -61,7 +62,7 @@ async def _search(board_id: str) -> dict[str, Any]:
 def _read_all(sql: psycopg.Connection[Any]) -> None:
     """As if the AI had read every posting and every job matched my preferences."""
     sql.execute("UPDATE posting SET extracted_hash = description_hash")
-    sql.execute("UPDATE listing SET matched = '{role}'")
+    mine.listed(sql)
 
 
 def _postings(sql: psycopg.Connection[Any]) -> dict[str, tuple[str, str | None]]:
@@ -70,7 +71,7 @@ def _postings(sql: psycopg.Connection[Any]) -> dict[str, tuple[str, str | None]]
 
 
 def _listings(sql: psycopg.Connection[Any]) -> dict[str, str]:
-    return dict(sql.execute("SELECT title_display, status FROM listing").fetchall())
+    return dict(sql.execute(f"SELECT title_display, status FROM {mine.LISTINGS} l").fetchall())
 
 
 async def _titles(api: httpx.AsyncClient, status: str = "open") -> list[str]:
@@ -104,8 +105,8 @@ async def test_confirmation_counts_and_changes_nothing(
     b.fake_boards(monkeypatch, {URL: b.greenhouse(LEAD, ANALYST, COUNSEL)})
     board_id = await _follow(api)
     await _search(board_id)
-    sql.execute("UPDATE listing SET matched = '{role}'")
-    sql.execute("UPDATE listing SET status = 'applied' WHERE title_display = 'Policy Analyst'")
+    mine.listed(sql)
+    mine.status(sql, "applied", "title_display = 'Policy Analyst'")
     sql.execute(
         "UPDATE posting SET extracted_hash = description_hash WHERE title_raw = 'Policy Analyst'"
     )
@@ -132,7 +133,7 @@ async def test_jobs_with_an_application_stay_and_hidden_stay_hidden(
         "Brand Designer": "failed",
     }
     for title, status in before.items():
-        sql.execute("UPDATE listing SET status = %s WHERE title_display = %s", (status, title))
+        mine.status(sql, status, "title_display = %s", (title,))
 
     await _unfollow(api, board_id)
     assert _listings(sql) == before  # I12: never closed or reset
@@ -224,6 +225,7 @@ async def test_counter_ignores_boards_unfollowed_before_this_rule(
     board_id = await _follow(api)
     await _search(board_id)
     sql.execute("UPDATE watched_board SET active = false")
+    sql.execute("UPDATE board_follow SET active = false")
     async with get_sessionmaker()() as session:
         assert await extracting(session) == 0
 
@@ -323,13 +325,15 @@ async def test_a_repost_under_a_new_id_joins_its_old_job_after_following_again(
     board_id = await _follow(api)
     await _search(board_id)
     [(listing_id,)] = sql.execute("SELECT id FROM listing").fetchall()
-    sql.execute("UPDATE listing SET status = 'applied'")
+    mine.status(sql, "applied")
     await _unfollow(api, board_id)
 
     routes[URL] = b.greenhouse(b.job(LEAD, id=9999, requisition_id=None))
     await _follow(api)
     await _search(board_id)
-    assert sql.execute("SELECT id, status FROM listing").fetchall() == [(listing_id, "applied")]
+    assert sql.execute(f"SELECT id, status FROM {mine.LISTINGS} l").fetchall() == [
+        (listing_id, "applied")
+    ]
     assert sorted(_postings_by_id(sql)) == [
         ("8806482002", "closed", "gone_from_board"),
         ("9999", "open", None),
@@ -364,7 +368,7 @@ async def test_reopened_jobs_are_matched_against_my_current_preferences(
         await refilter_from_profile(session)
         await session.commit()
     assert _listings(sql) == {"Commercial Policy Lead": "not_applied"}
-    assert sql.execute("SELECT matched FROM listing").fetchone() == (None,)
+    assert sql.execute(f"SELECT matched FROM {mine.LISTINGS} l").fetchone() == (None,)
     assert await _titles(api) == []
 
 

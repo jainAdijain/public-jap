@@ -12,6 +12,7 @@ import sys
 from sqlalchemy import func, select
 
 from auth import passwords, sessions
+from database import tenant
 from database.models import AppUser
 from database.session import get_sessionmaker
 
@@ -19,6 +20,11 @@ COMMANDS = ("two-step-off", "sign-out-all", "set-password")
 
 
 async def _run(command: str, email: str) -> str:
+    with tenant.as_system():
+        return await _do(command, email)
+
+
+async def _do(command: str, email: str) -> str:
     async with get_sessionmaker()() as session:
         user = await session.scalar(
             select(AppUser).where(func.lower(AppUser.email) == email.lower())

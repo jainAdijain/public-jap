@@ -64,7 +64,7 @@ function Shell() {
   }, [])
 
   const needsYou = summary?.totals.needs_input ?? 0
-  const attention = needsAttention(health, healthError, ops)
+  const attention = user.is_admin && needsAttention(health, healthError, ops) // the service is the admin's to fix
   const last = runs?.last
   const busy = searching(runs)
   return (
@@ -73,7 +73,7 @@ function Shell() {
         <div className="logo">
           <span className="logo-mark">JAP</span>
           <span className="logo-name">
-            Job Application Pipeline<small>Version 0.18.1</small>
+            Job Application Pipeline<small>Version 0.19.0</small>
           </span>
           {health?.env && health.env !== 'prod' && (
             <span className={`env-badge env-${health.env}`} title={`This is the ${health.env} copy of JAP, not prod`}>
@@ -143,7 +143,7 @@ export default function App() {
     window.addEventListener(SIGNED_OUT_EVENT, onSignedOut)
     return () => window.removeEventListener(SIGNED_OUT_EVENT, onSignedOut)
   }, [])
-  const setUser = useCallback((user: User) => setState((s) => (s ? { ...s, user, has_accounts: true, sign_up_open: false } : s)), [])
+  const setUser = useCallback((user: User) => setState((s) => (s ? { ...s, user, has_accounts: true } : s)), [])
   const signOut = useCallback(async (everywhere = false) => {
     await (everywhere ? auth.signOutEverywhere() : auth.signOut()).catch(() => undefined)
     setState((s) => (s ? { ...s, user: null, two_step_pending: false } : s))

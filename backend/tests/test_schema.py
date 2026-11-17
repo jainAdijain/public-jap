@@ -1,4 +1,5 @@
 import importlib.util
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,11 @@ EXPECTED = {
     "dedup_override",
     "possible_duplicate",
     "llm_call",
+    "board_follow",
+    "user_listing",
+    "email_verification",
+    "rate_limit",
+    "app_setting",
 }
 
 
@@ -38,10 +44,22 @@ def test_profile_needs_a_work_mode(sql: psycopg.Connection[Any]) -> None:
         sql.execute("INSERT INTO profile (work_modes) VALUES ('{}')")
 
 
-def test_profile_is_single_row(sql: psycopg.Connection[Any]) -> None:
+def test_one_profile_per_user(sql: psycopg.Connection[Any]) -> None:
     sql.execute("INSERT INTO profile DEFAULT VALUES")
     with pytest.raises(psycopg.errors.UniqueViolation):
         sql.execute("INSERT INTO profile DEFAULT VALUES")
+
+
+def test_a_private_row_needs_a_user(sql: psycopg.Connection[Any]) -> None:
+    """0011: user_id comes from app.user_id, and with none set the row is refused (S7)."""
+    sql.execute("RESET app.user_id")
+    for insert in (
+        "INSERT INTO profile DEFAULT VALUES",
+        "INSERT INTO run (trigger, mode) VALUES ('manual', 'find_only')",
+        "INSERT INTO answer_bank (question_pattern, question_norm, answer) VALUES ('q', 'q', 'a')",
+    ):
+        with pytest.raises(psycopg.errors.NotNullViolation):
+            sql.execute(insert)
 
 
 def _listing_and_posting(sql: psycopg.Connection[Any]) -> tuple[str, str, str]:
@@ -151,22 +169,29 @@ def test_skills_match_columns(sql: psycopg.Connection[Any]) -> None:
     row = sql.execute("SELECT auto_apply_min_skills, match_rule FROM profile").fetchone()
     assert row == (60, [["location", "role"]])
     listing, _, _ = _listing_and_posting(sql)
+    sql.execute("INSERT INTO user_listing (listing_id) VALUES (%s)", (listing,))
     row = sql.execute(
-        "SELECT required_hit, nice_hit, required_pct FROM listing WHERE id = %s", (listing,)
+        "SELECT status, required_hit, nice_hit, required_pct FROM user_listing"
+        " WHERE listing_id = %s",
+        (listing,),
     ).fetchone()
-    assert row == ([], [], None)  # unknown until the first refilter, never 0
+    assert row == ("not_applied", [], [], None)  # unknown until the first refilter, never 0
     with pytest.raises(psycopg.errors.CheckViolation):
-        sql.execute("UPDATE listing SET required_pct = 101")
+        sql.execute("UPDATE user_listing SET required_pct = 101")
     with pytest.raises(psycopg.errors.CheckViolation):
         sql.execute("UPDATE profile SET auto_apply_min_skills = -1")
 
 
 def test_migration_lists_jobs_the_skills_condition_hid(
-    sql: psycopg.Connection[Any], database_url: str
+    sql: psycopg.Connection[Any], database_url: str, owner: uuid.UUID
 ) -> None:
     """0010 applied to a database from before PRD 1.21: a profile on the old third choice
     (title, location and every required skill) sees the jobs that only skills kept out, each
-    with its skills match, without waiting for a search or a save."""
+    with its skills match, without waiting for a search or a save.
+
+    0011 then gives everything that was there to the admin (S1): the single profile becomes
+    theirs, each listed job gets their user_listing row, and the companies are theirs to
+    follow. The listing keeps only the facts."""
     cfg = Config(str(BACKEND / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND / "database" / "migrations"))
     command.downgrade(cfg, "0009_close_reason")
@@ -195,16 +220,29 @@ def test_migration_lists_jobs_the_skills_condition_hid(
             )
     finally:
         command.upgrade(cfg, "head")
-    assert sql.execute("SELECT match_rule FROM profile").fetchone() == ([["location", "role"]],)
+    assert sql.execute("SELECT user_id, match_rule FROM profile").fetchall() == [
+        (owner, [["location", "role"]])
+    ]
     rows = sql.execute(
-        "SELECT title_display, matched, required_hit, nice_hit, required_pct FROM listing"
-        " ORDER BY title_display"
+        "SELECT l.title_display, u.user_id, u.status::text, u.matched, u.required_hit,"
+        " u.nice_hit, u.required_pct FROM listing l"
+        " LEFT JOIN user_listing u ON u.listing_id = l.id ORDER BY l.title_display"
     ).fetchall()
     assert rows == [
-        ("Backend Engineer", ["role", "location"], ["python", "rust"], [], 100),
-        ("Data Analyst", None, ["python", "rust"], [], 100),  # title is not one of mine
-        # Work mode is still a filter: not listed, though its skills match is worked out.
-        ("Remote Backend Engineer", None, ["python", "rust"], [], 100),
-        ("Senior Backend Engineer", ["role", "location"], ["python"], ["docker"], 50),
-        ("Staff Backend Engineer", ["role", "location"], [], [], None),  # Skills not stated
-    ]
+        ("Backend Engineer", owner, "not_applied", ["role", "location"], ["python", "rust"],
+         [], 100),
+        # Not listed (the title is not one of mine; the work mode is not one I ticked), so
+        # there is nothing of mine to keep about them: no row.
+        ("Data Analyst", None, None, None, None, None, None),
+        ("Remote Backend Engineer", None, None, None, None, None, None),
+        ("Senior Backend Engineer", owner, "not_applied", ["role", "location"], ["python"],
+         ["docker"], 50),
+        ("Staff Backend Engineer", owner, "not_applied", ["role", "location"], [], [], None),
+    ]  # fmt: skip
+    columns = {
+        r[0]
+        for r in sql.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'listing'"
+        ).fetchall()
+    }
+    assert not columns & {"status", "matched", "matched_role", "required_pct", "applied_at"}

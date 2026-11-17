@@ -8,10 +8,15 @@
 - this month's AI spend against the cap
 - the health alerts emailed lately
 The last backup and form test come from GET /api/ops as before.
+
+Status is about the service, so it is the admin's (PRD S12, O Part B) and is read as the
+service: searches stuck for anyone, errors from anyone's requests, and AI spend as the total
+across every user and the shared postings. The Daily search shown is the admin's own.
 """
 
 import os
 import shutil
+import uuid
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -20,8 +25,9 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from database.models import AlertState, LogEvent, Profile, RouteStat, Run
-from llm.spend import month_spend
+from database.models import AlertState, AppUser, LogEvent, Profile, RouteStat, Run
+from llm.spend import total_spend
+from pipeline.workspace import admin_id, profile_of
 from schemas.status import (
     AlertOut,
     DailySearch,
@@ -72,13 +78,18 @@ def _brief(run: Run) -> RunBrief:
     )
 
 
-async def daily_search(session: AsyncSession, now: datetime) -> DailySearch:
-    """The Daily search: on or off, its last run, and missed=True when today's time passed
-    (plus half an hour) with no scheduled run since."""
-    tz = ZoneInfo(get_settings().jap_tz)
-    profile = await session.scalar(select(Profile))
+async def daily_search(
+    session: AsyncSession, now: datetime, user_id: uuid.UUID | None
+) -> DailySearch:
+    """One user's Daily search: on or off, its last run, and missed=True when today's time
+    passed (plus half an hour) with no scheduled run since."""
+    profile = await profile_of(session, user_id) if user_id is not None else None
+    tz = ZoneInfo((profile.tz if profile else None) or get_settings().jap_tz)
     last = await session.scalar(
-        select(Run).where(Run.trigger == "scheduled").order_by(desc(Run.created_at)).limit(1)
+        select(Run)
+        .where(Run.user_id == user_id, Run.trigger == "scheduled")
+        .order_by(desc(Run.created_at))
+        .limit(1)
     )
     if profile is None or not profile.daily_run:
         return DailySearch(on=False, at=None, last=_brief(last) if last else None, missed=False)
@@ -94,6 +105,16 @@ async def daily_search(session: AsyncSession, now: datetime) -> DailySearch:
     return DailySearch(
         on=True, at=at.strftime("%H:%M"), last=_brief(last) if last else None, missed=missed
     )
+
+
+async def missed_daily(session: AsyncSession, now: datetime) -> int:
+    """How many active accounts' Daily search did not start today."""
+    users = await session.scalars(
+        select(Profile.user_id)
+        .join(AppUser, AppUser.id == Profile.user_id)
+        .where(Profile.daily_run, AppUser.disabled_at.is_(None))
+    )
+    return sum([(await daily_search(session, now, uid)).missed for uid in users])
 
 
 async def stuck_runs(session: AsyncSession, now: datetime) -> list[RunBrief]:
@@ -182,7 +203,7 @@ async def slow_routes(session: AsyncSession, since: datetime, limit: int = 8) ->
 async def recent_alerts(session: AsyncSession, since: datetime) -> list[AlertOut]:
     rows = await session.scalars(
         select(AlertState)
-        .where(AlertState.last_sent_at >= since)
+        .where(AlertState.last_sent_at >= since, AlertState.user_id.is_(None))
         .order_by(desc(AlertState.last_sent_at))
     )
     return [AlertOut(key=r.key, sent_at=r.last_sent_at, detail=r.detail) for r in rows]
@@ -194,12 +215,12 @@ async def status(session: AsyncSession, now: datetime | None = None) -> Status:
     return Status(
         checked_at=now,
         env=get_settings().jap_env,
-        daily=await daily_search(session, now),
+        daily=await daily_search(session, now, await admin_id(session)),
         stuck_runs=await stuck_runs(session, now),
         errors_24h=await error_count(session, day),
         error_groups=await error_groups(session, day),
         slow_routes=await slow_routes(session, day),
         disk=disk(),
-        spend=await month_spend(session),
+        spend=await total_spend(session),
         alerts=await recent_alerts(session, now - timedelta(days=7)),
     )

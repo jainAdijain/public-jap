@@ -26,7 +26,7 @@ from types import SimpleNamespace
 import sqlalchemy as sa
 from alembic import op
 
-from pipeline.matching import Criteria, refilter_sql
+from pipeline.matching import Criteria, matches_sql
 
 revision: str = "0010_skills_match"
 down_revision: str | None = "0009_close_reason"
@@ -50,6 +50,22 @@ CLEAN_RULES = """
              GROUP BY combo) uniq),
       '[["location", "role"]]'::jsonb)
     WHERE jsonb_typeof(p.match_rule) = 'array';
+"""
+
+
+# The statement a profile save ran at 1.21, kept here because listing still held these
+# columns then (0011_tenancy moves them to user_listing, and pipeline.matching with them).
+REFILTER = """
+    UPDATE listing l SET matched = m.matched, matched_role = m.matched_role,
+      required_hit = m.required_hit, nice_hit = m.nice_hit,
+      required_pct = m.required_pct, updated_at = now()
+    FROM ({matches}) m
+    WHERE l.id = m.id
+      AND (l.matched IS DISTINCT FROM m.matched
+           OR l.matched_role IS DISTINCT FROM m.matched_role
+           OR l.required_hit IS DISTINCT FROM m.required_hit
+           OR l.nice_hit IS DISTINCT FROM m.nice_hit
+           OR l.required_pct IS DISTINCT FROM m.required_pct)
 """
 
 
@@ -89,8 +105,9 @@ def refilter_once() -> None:
     )
     if profile is None:
         return
-    sql, params = refilter_sql(Criteria.of(SimpleNamespace(**profile)))
-    bind.execute(sa.text(sql), params)
+    sql, params = matches_sql(Criteria.of(SimpleNamespace(**profile)))
+    params["ids"] = None
+    bind.execute(sa.text(REFILTER.format(matches=sql)), params)
 
 
 def downgrade() -> None:

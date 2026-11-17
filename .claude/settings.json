@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.live)",
+      "Read(./.env.local)",
+      "Read(./infra/tunnel/.env.tunnel)",
+      "Edit(./.env)",
+      "Edit(./.env.live)",
+      "Edit(./.env.local)",
+      "Edit(./infra/tunnel/.env.tunnel)"
+    ],
+    "ask": [
+      "Bash(make reset*)",
+      "Bash(make clean*)",
+      "Bash(make tunnel-start*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read|Edit|Write|MultiEdit|NotebookEdit|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR:-.}/infra/scripts/agent-guard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

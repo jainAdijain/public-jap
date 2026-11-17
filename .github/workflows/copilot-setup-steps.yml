@@ -1,0 +1,45 @@
+# What GitHub Copilot's cloud agent runs before it starts work in this repo (the job must be
+# named copilot-setup-steps). It leaves the sandbox ready for `make test-host`; the steps
+# themselves live in infra/scripts/agent-setup.sh, which every cloud harness shares
+# (AGENTS.md, Without the Docker stack).
+name: Copilot setup steps
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - infra/scripts/agent-setup.sh
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - infra/scripts/agent-setup.sh
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: jap
+          POSTGRES_PASSWORD: jap
+          POSTGRES_DB: jap
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jap" --health-interval 2s --health-timeout 3s
+          --health-retries 30
+    env:
+      JAP_HOST_DATABASE_URL: postgresql+psycopg://jap:jap@127.0.0.1:5432/jap
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: infra/scripts/agent-setup.sh

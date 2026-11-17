@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { api, type Health, type ListingSummary, type Ops, type Profile, type Resume, type RunState } from './api/client'
 import { Ctx, searching, type Store, type Toast } from './appContext'
+import { useAuth } from './authContext'
 
 const SEARCH_POLL_MS = 2000 // while a search is going, so its line changes as it happens
 const POLL_MS = 5000 // while descriptions are read or an application is going
 const IDLE_POLL_MS = 30000 // notices a daily search or a search started by a save
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const isAdmin = useAuth().user.is_admin
   const [profile, setProfile] = useState<Profile | null>(null)
   const [summary, setSummary] = useState<ListingSummary | null>(null)
   const [runs, setRuns] = useState<RunState | undefined>(undefined)
@@ -33,8 +35,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setHealth(null)
       setHealthError(err instanceof Error ? err.message : String(err))
     }
-    api.ops().then(setOps, () => setOps(null))
-  }, [])
+    // Backups and form tests are about the service, so only the admin can read them (S12).
+    if (isAdmin) api.ops().then(setOps, () => setOps(null))
+  }, [isAdmin])
 
   useEffect(() => {
     api.profile().then(setProfile, () => undefined)

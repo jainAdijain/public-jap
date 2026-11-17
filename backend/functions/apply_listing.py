@@ -8,6 +8,9 @@ application/submitted for the email. Review mode always stops at Ready for revie
 press Approve; nothing is submitted before. Automatic mode submits unless something about
 the job is unclear (A3). A Failed attempt sends application/failed for the alert email.
 
+The event names the user (PRD S13), and every step runs as them (observability/inngest_mw.py):
+their profile, resume, answer bank and daily cap, and an application only they can read.
+
 Concurrency 1: Inngest counts executing steps, not runs, so this means one browser at a
 time while attempts waiting for me (Ready for review, Needs input) hold no slot. A press
 lands on the application row first (the API writes it, then sends the event), and each
@@ -21,6 +24,7 @@ from typing import Any
 import inngest
 from sqlalchemy import select
 
+from database import tenant
 from database.models import Application
 from database.session import get_sessionmaker
 from functions.client import inngest_client
@@ -91,29 +95,34 @@ async def _failed(ctx: inngest.Context) -> None:
     original = ctx.event.data.get("event")
     data = original.get("data") if isinstance(original, dict) else None
     listing_id = data.get("listing_id") if isinstance(data, dict) else None
+    user_id = data.get("user_id") if isinstance(data, dict) else None
     error = ctx.event.data.get("error")
     message = error.get("message") if isinstance(error, dict) else None
-    if not isinstance(listing_id, str):
+    if not isinstance(listing_id, str) or not isinstance(user_id, str):
         return
     async with get_sessionmaker()() as session:
         app_id = await session.scalar(
             select(Application.id).where(
-                Application.listing_id == listing_id, Application.status.in_(flow.ACTIVE)
+                Application.user_id == tenant.user_id(session),
+                Application.listing_id == listing_id,
+                Application.status.in_(flow.ACTIVE),
             )
         )
         if app_id is not None:
             await flow.fail_by_id(session, str(app_id), message or "Apply failed after retries")
     if app_id is not None:
         await inngest_client.send(
-            inngest.Event(name="application/failed", data={"application_id": str(app_id)})
+            inngest.Event(
+                name="application/failed",
+                data={"application_id": str(app_id), "user_id": user_id},
+            )
         )
 
 
 async def _alert(ctx: inngest.Context, app_id: str) -> None:
     """The failure alert email (notify-failure)."""
-    await ctx.step.send_event(
-        "send-failed", inngest.Event(name="application/failed", data={"application_id": app_id})
-    )
+    data = {"application_id": app_id, "user_id": str(ctx.event.data["user_id"])}
+    await ctx.step.send_event("send-failed", inngest.Event(name="application/failed", data=data))
 
 
 async def wait_for_me(ctx: inngest.Context, app_id: str, event: str, waiting: str, tag: str) -> str:
@@ -141,7 +150,8 @@ async def wait_for_me(ctx: inngest.Context, app_id: str, event: str, waiting: st
     cancel=[
         inngest.Cancel(
             event="application/cancelled",
-            if_exp="event.data.listing_id == async.data.listing_id",
+            if_exp="event.data.listing_id == async.data.listing_id"
+            " && event.data.user_id == async.data.user_id",
         )
     ],
     on_failure=_failed,
@@ -193,7 +203,10 @@ async def apply_listing(ctx: inngest.Context) -> dict[str, Any]:
         if result.get("status") == "applied":
             await ctx.step.send_event(
                 "send-submitted",
-                inngest.Event(name="application/submitted", data={"application_id": app_id}),
+                inngest.Event(
+                    name="application/submitted",
+                    data={"application_id": app_id, "user_id": str(ctx.event.data["user_id"])},
+                ),
             )
         elif result.get("status") == "failed":
             await _alert(ctx, app_id)

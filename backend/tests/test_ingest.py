@@ -4,7 +4,8 @@ from typing import Any
 import psycopg
 import pytest
 
-from database.models import Posting, WatchedBoard
+from database import tenant
+from database.models import BoardFollow, Posting, WatchedBoard
 from database.session import get_sessionmaker
 from functions.fetch_board import close_step, fetch_step
 from pipeline.ingest import html_to_text
@@ -22,9 +23,12 @@ def test_html_to_text() -> None:
 
 
 async def _board(ats: str = "greenhouse", token: str = "discord") -> str:
+    """A board the test's user follows."""
     async with get_sessionmaker()() as session:
         board = WatchedBoard(ats=ats, board_token=token, display_name="Discord", origin="user")
         session.add(board)
+        await session.flush()
+        session.add(BoardFollow(user_id=tenant.user_id(session), board_id=board.id))
         await session.commit()
         return str(board.id)
 
@@ -101,7 +105,9 @@ async def test_board_not_found_is_marked_and_does_not_raise(
     assert sql.execute("SELECT last_ok FROM watched_board").fetchone() == (False,)
 
 
-async def test_posting_maps_back_to_job(db: str, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_posting_maps_back_to_job(
+    db: str, owner: uuid.UUID, monkeypatch: pytest.MonkeyPatch
+) -> None:
     b.fake_boards(monkeypatch, {f"{GH}/discord/jobs": b.greenhouse(b.GREENHOUSE_JOB)})
     await fetch_step(await _board())
     async with get_sessionmaker()() as session:

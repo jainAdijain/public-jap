@@ -11,6 +11,7 @@ import time
 from pydantic import BaseModel
 
 from config import get_settings
+from database import tenant
 from database.session import get_sessionmaker
 from llm import Sensitive, call
 from llm.client import ModelCallError
@@ -24,6 +25,7 @@ class Pong(BaseModel):
 async def main() -> int:
     settings = get_settings()
     failed = False
+    tenant.bind(tenant.SYSTEM)  # a check of the service, billed to its own budget
     async with get_sessionmaker()() as session:
         for slot, model in (
             ("extract", settings.jap_model_extract),

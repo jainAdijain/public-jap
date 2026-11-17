@@ -4,6 +4,11 @@ Inngest calls the app once per step. Before the call this binds the Inngest run 
 function and the ids in the event (run, application, posting, listing); after it, one line
 says which step ran, how long it took and whether it failed. Step lines that belong to a run
 or an application are kept in log_event for the application timeline.
+
+It also says whose work the call is (PRD S7, S13). An event that carries user_id runs as
+that user, so every database session the function opens reads and writes only their rows;
+one without (a schedule, a board fetch, reading a posting) runs as the service
+(database/tenant.py). A failure handler gets the user of the event that failed.
 """
 
 import logging
@@ -12,12 +17,23 @@ from typing import Any
 
 import inngest
 
+from database import tenant
 from observability import context
 from observability.logs import event
 
 log = logging.getLogger("jap.inngest")
 
-EVENT_IDS = ("run_id", "application_id", "posting_id", "listing_id")
+EVENT_IDS = ("user_id", "run_id", "application_id", "posting_id", "listing_id")
+
+
+def event_user(data: dict[str, Any]) -> str | None:
+    """The user an event is for: its own user_id, or the failed event's in an on_failure."""
+    found = data.get("user_id")
+    if found is None:
+        original = data.get("event")
+        inner = original.get("data") if isinstance(original, dict) else None
+        found = inner.get("user_id") if isinstance(inner, dict) else None
+    return str(found) if found else None
 
 
 class LogMiddleware(inngest.Middleware):
@@ -29,6 +45,9 @@ class LogMiddleware(inngest.Middleware):
     async def transform_input(self, ctx: Any, function: Any, steps: Any) -> None:
         data = dict(getattr(ctx.event, "data", None) or {})
         self._function = str(getattr(function, "id", "") or "")
+        user_id = event_user(data)
+        tenant.bind(tenant.user(user_id) if user_id else tenant.SYSTEM)
+        data["user_id"] = user_id
         context.bind(
             inngest_run_id=getattr(ctx, "run_id", None),
             function=self._function,

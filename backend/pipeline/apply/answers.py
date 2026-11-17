@@ -4,7 +4,8 @@ The bank is searched by the normalised question: an exact match, else pg_trgm si
 of 0.8 or more. A required free-text question with no stored answer gets a draft tailored
 to the JD and role. A drafted answer is shown in Review mode and is saved to the bank only
 when I save it. When the writer model can't draft one, the question goes to Needs input
-marked draft_failed, with the reason, and the run counts it.
+marked draft_failed, with the reason, and the run counts it. The bank is the session
+user's own (PRD S7): another user's saved answer is never found or filled in.
 """
 
 import re
@@ -15,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from database import tenant
 from database.models import AnswerBank, Profile
 from llm import call
 from llm.redact import Sensitive, restore
@@ -34,22 +36,27 @@ async def bank_answer(session: AsyncSession, question: str) -> AnswerBank | None
     norm = normalize_question(question)
     if not norm:
         return None
-    exact = await session.scalar(select(AnswerBank).where(AnswerBank.question_norm == norm))
+    mine = AnswerBank.user_id == tenant.user_id(session)
+    exact = await session.scalar(select(AnswerBank).where(mine, AnswerBank.question_norm == norm))
     if exact is not None:
         return exact
     sim = func.similarity(AnswerBank.question_norm, norm)
     return await session.scalar(
-        select(AnswerBank).where(sim >= SIMILAR).order_by(sim.desc()).limit(1)
+        select(AnswerBank).where(mine, sim >= SIMILAR).order_by(sim.desc()).limit(1)
     )
 
 
 async def save_to_bank(session: AsyncSession, question: str, answer: str) -> None:
     """Add the answer, or replace the one stored for the same question."""
     norm = normalize_question(question)
-    row = await session.scalar(select(AnswerBank).where(AnswerBank.question_norm == norm))
+    uid = tenant.user_id(session)
+    row = await session.scalar(
+        select(AnswerBank).where(AnswerBank.user_id == uid, AnswerBank.question_norm == norm)
+    )
     if row is None:
         session.add(
             AnswerBank(
+                user_id=uid,
                 question_pattern=question.strip(),
                 question_norm=norm,
                 answer=answer.strip(),

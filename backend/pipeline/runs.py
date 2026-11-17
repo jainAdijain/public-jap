@@ -1,17 +1,19 @@
 """Creating runs (T4): a run row exists before its event is sent, and repeats collapse.
 
-The one_queued_run index allows a single queued run. A trigger that finds one reuses it
-instead of adding another, widening its scope to cover both asks; run-pipeline's
-concurrency of 1 makes it wait for the active run.
+The one_queued_run index allows each user a single queued run. A trigger that finds one
+reuses it instead of adding another, widening its scope to cover both asks; run-pipeline's
+concurrency of 1 makes it wait for the active run, whoever's that is: searches still take
+turns across the service.
 
 Inngest's concurrency limit counts executing steps, not runs: a run waiting on its board
 fetches does not hold the slot, so a queued run's first step could start beside it. So a
 run claims its turn itself (start_run returns None while another run is going) and keeps
 waiting as queued, which also keeps it the run that later triggers join.
 
-A scope (the Run dialog, T3) narrows a run to some boards and some roles. Roles are matched
-the way the match rule matches them (whole words, Sr to Senior, engineer = developer), on
-the posting's title, so only that role's jobs are stored, updated or closed.
+A scope (the Run dialog, T3) narrows a run to some boards and some roles. A board is
+always fetched and stored whole, because its postings are shared and another follower may
+want the rest (PRD S7); the roles narrow what the run picks to apply for, matched the way
+the match rule matches them (whole words, Sr to Senior, engineer = developer).
 """
 
 import re
@@ -24,7 +26,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import Posting, Run, WatchedBoard
+from database import tenant
+from database.models import AppUser, BoardFollow, Posting, Run, WatchedBoard
 from pipeline.canonical import canonical_role
 from pipeline.matching import role_pattern
 
@@ -55,8 +58,11 @@ def in_scope(title: str, matcher: re.Pattern[str] | None) -> bool:
 async def queue_run(
     session: AsyncSession, trigger: str, mode: str, scope: dict[str, Any] | None = None
 ) -> tuple[Run, bool]:
-    """The queued run to use, and whether it is new (only a new one needs its event sent)."""
-    queued = await session.scalar(select(Run).where(Run.status == "queued"))
+    """The session user's queued run to use, and whether it is new (only a new one needs
+    its event sent)."""
+    uid = tenant.user_id(session)
+    mine = select(Run).where(Run.user_id == uid, Run.status == "queued")
+    queued = await session.scalar(mine)
     if queued is not None:
         merged = merge_scope(queued.scope or {}, scope or {})
         upgrade = mode == "find_and_apply" and queued.mode != mode  # applying covers finding
@@ -67,13 +73,13 @@ async def queue_run(
             await session.commit()
             await session.refresh(queued)
         return queued, False
-    run = Run(trigger=trigger, mode=mode, scope=scope or {})
+    run = Run(user_id=uid, trigger=trigger, mode=mode, scope=scope or {})
     session.add(run)
     try:
         await session.commit()
     except IntegrityError:  # another trigger queued one a moment ago
         await session.rollback()
-        queued = await session.scalar(select(Run).where(Run.status == "queued"))
+        queued = await session.scalar(mine)
         assert queued is not None
         return queued, False
     await session.refresh(run)
@@ -81,12 +87,18 @@ async def queue_run(
 
 
 async def start_run(session: AsyncSession, run_id: uuid.UUID) -> list[dict[str, Any]] | None:
-    """Mark the run running and list the boards it fetches (only active ones, I8), each
-    with the roles it is scoped to (None for every role). None while another run is going:
-    this one stays queued and tries again (T4)."""
+    """Mark the run running and list the boards it fetches: the ones its user follows (I8).
+    None while another run is going, anyone's: this one stays queued and tries again (T4).
+    Run as the service, which is what lets it see the other users' runs."""
     run = await session.get(Run, run_id, with_for_update=True)
     if run is None:
         raise LookupError(f"run {run_id} not found")
+    owner = await session.get(AppUser, run.user_id)
+    if owner is None or owner.disabled_at is not None:  # turned off since it was queued (S12)
+        run.status, run.ended_at = "failed", datetime.now(UTC)
+        run.error = "This account is turned off"
+        await session.commit()
+        return []
     if run.status == "queued":
         other = await session.scalar(
             select(Run.id).where(
@@ -102,6 +114,8 @@ async def start_run(session: AsyncSession, run_id: uuid.UUID) -> list[dict[str, 
         run.started_at = datetime.now(UTC)
     query = (
         select(WatchedBoard)
+        .join(BoardFollow, BoardFollow.board_id == WatchedBoard.id)
+        .where(BoardFollow.user_id == run.user_id, BoardFollow.active)
         .where(WatchedBoard.active, WatchedBoard.origin != "demo")  # demo boards hold fixtures
         .order_by(WatchedBoard.display_name)
     )
@@ -109,16 +123,15 @@ async def start_run(session: AsyncSession, run_id: uuid.UUID) -> list[dict[str, 
     if board_ids:
         query = query.where(WatchedBoard.id.in_([uuid.UUID(b) for b in board_ids]))
     boards = list(await session.scalars(query))
-    roles = (run.scope or {}).get("roles") or None
     await session.commit()
-    return [{"board_id": str(b.id), "ats": b.ats, "roles": roles} for b in boards]
+    return [{"board_id": str(b.id), "ats": b.ats} for b in boards]
 
 
 async def finish_run(
     session: AsyncSession, run_id: uuid.UUID, counts: dict[str, Any], error: str | None = None
 ) -> None:
     run = await session.get(Run, run_id, with_for_update=True)  # apply-listing adds counts too
-    if run is None:
+    if run is None or run.status in ("succeeded", "failed"):
         return
     run.status = "failed" if error else "succeeded"
     run.ended_at = datetime.now(UTC)
@@ -127,15 +140,20 @@ async def finish_run(
     await session.commit()
 
 
-async def embeddings_pending(session: AsyncSession) -> int:
-    """Open postings of followed boards still waiting for their embedding (near-match
-    dedup needs it)."""
+async def embeddings_pending(session: AsyncSession, run_id: uuid.UUID | None = None) -> int:
+    """Open postings still waiting for their embedding (near-match dedup needs it): those
+    of the boards this run's user follows, or of every followed board."""
+    owner = select(Run.user_id).where(Run.id == run_id).scalar_subquery()
+    boards = select(BoardFollow.board_id).where(BoardFollow.active)
+    if run_id is not None:
+        boards = boards.where(BoardFollow.user_id == owner)
     count = await session.scalar(
         select(func.count())
         .select_from(Posting)
         .join(WatchedBoard, WatchedBoard.id == Posting.watched_board_id)
         .where(
             WatchedBoard.active,
+            WatchedBoard.id.in_(boards),
             Posting.state == "open",
             Posting.embedded_hash.is_distinct_from(Posting.description_hash),
         )

@@ -2,6 +2,13 @@
 
 These routes are the only ones besides /api/health that answer without a session. The rest of
 /api carries the CurrentUser dependency (main.py).
+
+Sign-up is open (PRD 1.18 step 2: S1, S10). The first account is the admin and is signed in
+at once. Every account after it gets an emailed link and has no session until the link is
+opened; what the page hears is the same whether or not the address already had an account.
+Sign-up, forgot password and "send the link again" are limited per address and per email
+(auth/limits.py) and can ask for proof of a human (auth/turnstile.py), and the admin can
+pause sign-up altogether (S12).
 """
 
 import logging
@@ -13,7 +20,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import ApiError
-from auth import passwords, sessions, totp
+from auth import accounts, limits, passwords, sessions, totp, turnstile
 from auth.deps import CurrentSession, CurrentUser
 from config import get_settings
 from database.models import AppUser, PasswordReset
@@ -28,10 +35,13 @@ from schemas.auth import (
     Password,
     PasswordChange,
     RecoveryCodes,
+    Resend,
     Reset,
     SignInResult,
+    SignUp,
     TwoStepSetup,
     UserOut,
+    VerifyEmail,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -42,7 +52,8 @@ LOCK_MINUTES = 15
 RESET_MINUTES = 30
 RESET_EVERY = timedelta(minutes=2)
 WRONG = "Wrong email or password"
-SIGN_UP_CLOSED = "Sign-up isn't open. Ask the JAP admin for an invite."
+SIGN_UP_CLOSED = "Sign-up is paused for now. Try again later."
+UNVERIFIED = "Confirm your email first: open the link JAP sent you."
 ACCOUNT_OFF = "This account is turned off. Ask the JAP admin."
 EXPIRED_LINK = "This link has expired or was already used. Ask for a new one."
 SIGN_UP_LOCK = 7_342_001  # pg_advisory_xact_lock key: one sign-up at a time
@@ -50,15 +61,12 @@ SIGN_UP_LOCK = 7_342_001  # pg_advisory_xact_lock key: one sign-up at a time
 
 def user_out(user: AppUser) -> UserOut:
     return UserOut(
+        id=user.id,
         email=user.email,
         is_admin=user.is_admin,
         two_step=user.totp_secret is not None,
         recovery_codes_left=len(user.recovery_codes or []),
     )
-
-
-async def _any_account(session: AsyncSession) -> bool:
-    return await session.scalar(select(AppUser.id).limit(1)) is not None
 
 
 async def _by_email(session: AsyncSession, email: str) -> AppUser | None:
@@ -87,44 +95,111 @@ def _new_password(password: str) -> None:
 
 @router.get("/state", response_model=AuthState)
 async def state(request: Request, session: Session) -> AuthState:
-    has_accounts = await _any_account(session)
+    has_accounts = await accounts.any_account(session)
     row = await sessions.find(session, request, sessions.SIGNED_IN)
     user = await session.get(AppUser, row.user_id) if row else None
     pending = await sessions.find(session, request, sessions.TWO_STEP)
     return AuthState(
         has_accounts=has_accounts,
-        sign_up_open=not has_accounts,
+        sign_up_open=not has_accounts or not await accounts.sign_up_paused(session),
         user=user_out(user) if user else None,
         two_step_pending=user is None and pending is not None,
+        turnstile_site_key=get_settings().turnstile_site_key,
     )
 
 
-@router.post("/sign-up", response_model=SignInResult, status_code=201)
-async def sign_up(
-    body: Credentials, request: Request, response: Response, session: Session
-) -> SignInResult:
-    """Create an account (S1). Step 1: only the first one, which becomes the admin.
+async def _send(mail: Mail | None, what: str) -> None:
+    if mail is None:
+        return
+    try:
+        await send_mail(mail)
+    except EmailNotSent as exc:
+        log.warning("%s email not sent: %s", what, exc)
 
-    Invites and open sign-up (S11, S12) come with each user's own data in step 2.
-    """
-    await session.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": SIGN_UP_LOCK})
-    if await _any_account(session):
-        raise ApiError(409, "sign_up_closed", SIGN_UP_CLOSED)
+
+async def _first_account(session: AsyncSession, body: SignUp) -> AppUser:
+    """The admin (S1): the first account, or the one that takes over the placeholder owner
+    of data that was there before any account."""
     allowed = get_settings().jap_admin_email.strip()
     if allowed and allowed.lower() != body.email.lower():
         raise ApiError(403, "not_admin_email", "This address can't create the first JAP account")
     _new_password(body.password)
-    user = AppUser(
-        email=body.email,
-        password_hash=await passwords.hash_password(body.password),
-        is_admin=True,
-        email_verified_at=sessions.now(),
-    )
-    session.add(user)
+    user = await accounts.unclaimed(session)
+    if user is None:
+        user = AppUser(email=body.email, password_hash="", is_admin=True)
+        session.add(user)
+    user.email = body.email
+    user.password_hash = await passwords.hash_password(body.password)
+    user.is_admin = True
+    user.email_verified_at = sessions.now()
+    user.password_changed_at = sessions.now()
     await session.flush()
+    return user
+
+
+@router.post("/sign-up", response_model=SignInResult, status_code=201)
+async def sign_up(
+    body: SignUp, request: Request, response: Response, session: Session
+) -> SignInResult:
+    """Create an account (S1). The first one is the admin and is signed in at once. Any
+    other gets an emailed link (S10) and the same answer whatever the address: a new
+    account, one still waiting for its link (which is sent again), or one that exists."""
+    await limits.check(session, request, "sign-up", body.email)
+    await turnstile.check(body.turnstile, limits.client_ip(request))
+    await session.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": SIGN_UP_LOCK})
+    if not await accounts.any_account(session):
+        user = await _first_account(session, body)
+        await accounts.start_workspace(session, user)
+        user.last_sign_in_at = sessions.now()
+        await sessions.start(session, user, sessions.SIGNED_IN, request, response)
+        await session.commit()
+        return SignInResult(signed_in=True, two_step=False, user=user_out(user))
+    if await accounts.sign_up_paused(session):
+        raise ApiError(403, "sign_up_closed", SIGN_UP_CLOSED)
+    _new_password(body.password)
+    existing = await _by_email(session, body.email)
+    mail: Mail | None = None
+    if existing is None:
+        user = AppUser(email=body.email, password_hash=await passwords.hash_password(body.password))
+        session.add(user)
+        await session.flush()
+        mail = await accounts.verification_mail(session, user, force=True)
+        await accounts.start_workspace(session, user)
+    elif existing.email_verified_at is None and existing.disabled_at is None:
+        mail = await accounts.verification_mail(session, existing)
+    await session.commit()
+    await _send(mail, "Verification")
+    return SignInResult(signed_in=False, two_step=False, user=None, verify_email=True)
+
+
+@router.post("/verify", response_model=SignInResult)
+async def verify_email(
+    body: VerifyEmail, request: Request, response: Response, session: Session
+) -> SignInResult:
+    """Open the emailed link (S10): the address is confirmed and this browser is signed in."""
+    user = await accounts.verify(session, body.token)
+    if user is None:
+        raise ApiError(400, "verify_link_expired", EXPIRED_LINK)
+    if user.disabled_at is not None:
+        raise ApiError(403, "account_off", ACCOUNT_OFF)
+    user.last_sign_in_at = sessions.now()
     await sessions.start(session, user, sessions.SIGNED_IN, request, response)
     await session.commit()
     return SignInResult(signed_in=True, two_step=False, user=user_out(user))
+
+
+@router.post("/verify/resend", status_code=202)
+async def resend_verification(body: Resend, request: Request, session: Session) -> dict[str, bool]:
+    """Send again (S10). The answer is the same for any address; at most one email goes out
+    every 2 minutes per account."""
+    await limits.check(session, request, "verify-resend", body.email)
+    user = await _by_email(session, body.email)
+    mail: Mail | None = None
+    if user is not None and user.email_verified_at is None and user.disabled_at is None:
+        mail = await accounts.verification_mail(session, user)
+        await session.commit()
+    await _send(mail, "Verification")
+    return {"queued": True}
 
 
 @router.post("/sign-in", response_model=SignInResult)
@@ -141,6 +216,8 @@ async def sign_in(
         raise ApiError(401, "wrong_credentials", WRONG)
     if user.disabled_at is not None:
         raise ApiError(403, "account_off", ACCOUNT_OFF)
+    if user.email_verified_at is None:
+        raise ApiError(403, "email_unverified", UNVERIFIED)
     await sessions.sweep(session)
     if user.totp_secret is not None:
         await sessions.start(session, user, sessions.TWO_STEP, request, response)
@@ -148,6 +225,7 @@ async def sign_in(
         return SignInResult(signed_in=False, two_step=True, user=None)
     user.failed_sign_ins = 0
     user.locked_until = None
+    user.last_sign_in_at = sessions.now()
     await sessions.start(session, user, sessions.SIGNED_IN, request, response)
     await session.commit()
     return SignInResult(signed_in=True, two_step=False, user=user_out(user))
@@ -192,6 +270,7 @@ async def sign_in_code(
     sessions.clear_cookie(response, sessions.TWO_STEP)
     user.failed_sign_ins = 0
     user.locked_until = None
+    user.last_sign_in_at = sessions.now()
     await sessions.start(session, user, sessions.SIGNED_IN, request, response)
     await session.commit()
     return SignInResult(signed_in=True, two_step=False, user=user_out(user))
@@ -220,8 +299,10 @@ async def me(user: CurrentUser) -> UserOut:
 
 
 @router.post("/forgot", status_code=202)
-async def forgot(body: Forgot, session: Session) -> dict[str, bool]:
+async def forgot(body: Forgot, request: Request, session: Session) -> dict[str, bool]:
     """Email a reset link to the account's address (S4). The answer is the same for any address."""
+    await limits.check(session, request, "forgot", body.email)
+    await turnstile.check(body.turnstile, limits.client_ip(request))
     user = await _by_email(session, body.email)
     if user is None:
         return {"queued": True}
@@ -250,10 +331,7 @@ async def forgot(body: Forgot, session: Session) -> dict[str, bool]:
             "If you didn't ask for this, ignore this email; your password stays the same.\n"
         ),
     )
-    try:
-        await send_mail(mail)
-    except EmailNotSent as exc:
-        log.warning("Password reset email not sent: %s", exc)
+    await _send(mail, "Password reset")
     return {"queued": True}
 
 

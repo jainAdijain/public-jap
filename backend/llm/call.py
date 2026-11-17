@@ -1,9 +1,11 @@
 """llm.call(): the one way to reach a chat model.
 
-Redact every input, guard the outgoing body, stop at the monthly spend cap, call
-OpenRouter, log the call (a hash of the input, never the text), validate the JSON
-against the output model (one retry), and return it. The run and application in the log
-context (observability/context.py) are written on the llm_call row for the timeline (O8).
+Redact every input, guard the outgoing body, stop at the monthly spend cap (the user's own
+allowance for work done for them, the service's budget for reading shared postings, and the
+total across both: llm/spend.py), call OpenRouter, log the call (a hash of the input, never
+the text), validate the JSON against the output model (one retry), and return it. The run
+and application in the log context (observability/context.py) are written on the llm_call
+row for the timeline (O8).
 A reply that wraps the JSON in a code fence or a sentence is accepted: not every provider
 behind a model id honours response_format. Restoring placeholders in the output is left
 to the caller, which knows which fields may carry them.
@@ -21,10 +23,11 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
+from database import tenant
 from database.models import LlmCall
 from llm import client
 from llm.redact import PersonalDataBlocked, Sensitive, guard, redact
-from llm.spend import month_spend
+from llm.spend import month_spend, system_spend, total_spend
 from observability import context
 
 PROMPTS = Path(__file__).parent / "prompts"
@@ -46,7 +49,8 @@ DEFAULT_MAX_TOKENS = 4_000
 
 
 class SpendCapReached(Exception):
-    """This month's model spend has reached JAP_MONTHLY_COST_CAP_USD."""
+    """This month's model spend has reached the user's allowance, the service's budget for
+    shared postings, or the total limit."""
 
 
 @dataclass
@@ -116,6 +120,8 @@ async def call(
     body = client.build_body(model, prompt.system, user, _schema(output), temperature, cap)
     body_text = json.dumps(body, ensure_ascii=False)
     input_sha = hashlib.sha256(body_text.encode()).hexdigest()
+    # Who this call is for: a user (their allowance pays) or the service (shared postings).
+    user_id = tenant.of(session).user_id
 
     def log(**fields: Any) -> LlmCall:
         row = LlmCall(
@@ -125,6 +131,8 @@ async def call(
             input_sha256=input_sha,
             run_id=context.uuid_of("run_id"),
             application_id=context.uuid_of("application_id"),
+            user_id=user_id,
+            billed_to="user" if user_id else "system",
             **fields,
         )
         session.add(row)
@@ -137,7 +145,9 @@ async def call(
         await session.commit()
         raise
 
-    spend = await month_spend(session)
+    spend = await (month_spend(session, user_id) if user_id else system_spend(session))
+    if not spend.reached:
+        spend = await total_spend(session)
     if spend.reached:
         log(error="Spend cap reached")
         await session.commit()

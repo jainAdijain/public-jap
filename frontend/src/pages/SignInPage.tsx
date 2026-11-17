@@ -1,16 +1,28 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 
-import { auth, type AuthState, type User } from '../api/client'
+import { ApiError, auth, type AuthState, type User } from '../api/client'
 import { errorText } from '../format'
 
-// The screen shown before JAP opens (PRD S1 to S6): create the first account, sign in,
-// the two-step code, Forgot password and the reset link from the email.
+// The screen shown before JAP opens (PRD S1 to S6, S10): create an account, sign in, the
+// two-step code, Forgot password and the reset link from the email. Anyone can create an
+// account. The first one is the admin and goes straight in; every one after that gets an
+// emailed link and sees Check your email until it is opened.
 
-type Mode = 'sign-in' | 'create' | 'code' | 'forgot' | 'forgot-sent' | 'reset' | 'reset-done'
+type Mode =
+  | 'sign-in'
+  | 'create'
+  | 'code'
+  | 'forgot'
+  | 'forgot-sent'
+  | 'reset'
+  | 'reset-done'
+  | 'verify-sent'
+  | 'verifying'
+  | 'verify-failed'
 
 const MIN_PASSWORD = 12
 
-function Card({ title, lead, children }: { title: string; lead?: string; children: ReactNode }) {
+function Card({ title, lead, children }: { title: string; lead?: string; children?: ReactNode }) {
   return (
     <main className="auth">
       <div className="auth-card">
@@ -53,23 +65,66 @@ function Field(props: {
   )
 }
 
-/** The reset token from the emailed link (?reset=...), taken out of the address bar at once. */
-function takeResetToken(): string | null {
+/** A token from an emailed link (?reset=... or ?verify=...), taken out of the address bar at once. */
+function takeToken(name: string): string | null {
   const params = new URLSearchParams(window.location.search)
-  const token = params.get('reset')
+  const token = params.get(name)
   if (token) {
-    params.delete('reset')
+    params.delete(name)
     const rest = params.toString()
     window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`)
   }
   return token
 }
 
+type TurnstileApi = {
+  render: (el: HTMLElement, options: { sitekey: string; callback: (token: string) => void; 'expired-callback': () => void }) => string
+  remove: (id: string) => void
+}
+const TURNSTILE_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+const turnstileApi = () => (window as unknown as { turnstile?: TurnstileApi }).turnstile
+
+/** Cloudflare's "prove you're human" check, shown only when the server has a site key. */
+function Turnstile({ siteKey, onToken }: { siteKey: string; onToken: (token: string | null) => void }) {
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    let id: string | null = null
+    let gone = false
+    const show = () => {
+      const api = turnstileApi()
+      if (gone || !api || !box.current) return
+      id = api.render(box.current, { sitekey: siteKey, callback: onToken, 'expired-callback': () => onToken(null) })
+    }
+    if (turnstileApi()) show()
+    else {
+      let script = document.querySelector<HTMLScriptElement>(`script[src="${TURNSTILE_SRC}"]`)
+      if (!script) {
+        script = document.createElement('script')
+        script.src = TURNSTILE_SRC
+        script.async = true
+        document.head.appendChild(script)
+      }
+      script.addEventListener('load', show)
+    }
+    return () => {
+      gone = true
+      if (id) turnstileApi()?.remove(id)
+      onToken(null)
+    }
+  }, [siteKey, onToken])
+  return <div ref={box} className="auth-human" />
+}
+
 export default function SignInPage({ state, onSignedIn }: { state: AuthState; onSignedIn: (u: User) => void }) {
-  const [resetToken] = useState(takeResetToken)
+  const [resetToken] = useState(() => takeToken('reset'))
+  const [verifyToken] = useState(() => takeToken('verify'))
+  const first = !state.has_accounts // the first account is the admin and needs no email check
   const [mode, setMode] = useState<Mode>(() =>
-    resetToken ? 'reset' : state.two_step_pending ? 'code' : state.sign_up_open ? 'create' : 'sign-in',
+    resetToken ? 'reset' : verifyToken ? 'verifying' : state.two_step_pending ? 'code' : first ? 'create' : 'sign-in',
   )
+  const [human, setHuman] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const needsHuman = Boolean(state.turnstile_site_key)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [again, setAgain] = useState('')
@@ -77,8 +132,26 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // The emailed link (S10): confirm the address and go in. The link works once, so this
+  // runs once even when React mounts the page twice in development.
+  const verifying = useRef(false)
+  useEffect(() => {
+    if (!verifyToken || verifying.current) return
+    verifying.current = true
+    auth
+      .verify(verifyToken)
+      .then((res) => {
+        if (res.user) onSignedIn(res.user)
+      })
+      .catch((err) => {
+        setError(errorText(err))
+        setMode('verify-failed')
+      })
+  }, [verifyToken, onSignedIn])
+
   const go = (m: Mode) => {
     setError(null)
+    setNotice(null)
     setPassword('')
     setAgain('')
     setCode('')
@@ -112,24 +185,76 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
     </button>
   )
 
+  const humanCheck = needsHuman && <Turnstile siteKey={state.turnstile_site_key} onToken={setHuman} />
+  const humanProblem = () => (needsHuman && !human ? "Tick the check that you're human first" : null)
+
   if (mode === 'create') {
     return (
-      <Card title="Create your JAP account" lead="This first account is the admin of this JAP.">
+      <Card
+        title="Create your JAP account"
+        lead={first ? 'This first account is the admin of this JAP.' : "We'll email you a link to confirm your address before you can sign in."}
+      >
         <form
           className="auth-form"
           onSubmit={run(async () => {
-            const problem = newPasswordProblem()
+            const problem = newPasswordProblem() ?? humanProblem()
             if (problem) throw new Error(problem)
-            const res = await auth.signUp(email, password)
+            const res = await auth.signUp(email, password, human)
             if (res.user) onSignedIn(res.user)
+            else if (res.verify_email) go('verify-sent')
           })}
         >
           <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" autoFocus />
           <Field label="Password" type="password" value={password} onChange={setPassword} autoComplete="new-password" hint={`At least ${MIN_PASSWORD} characters.`} />
           <Field label="Password again" type="password" value={again} onChange={setAgain} autoComplete="new-password" />
+          {humanCheck}
           {failure}
           {submit('Create account')}
+          {!first && (
+            <button type="button" className="btn-link" onClick={() => go('sign-in')}>
+              I already have an account
+            </button>
+          )}
         </form>
+      </Card>
+    )
+  }
+
+  if (mode === 'verify-sent') {
+    return (
+      <Card
+        title="Check your email"
+        lead={`We sent a link to ${email}. Open it to confirm your address and sign in. It works once, for 24 hours. If ${email} already has a JAP account, sign in instead.`}
+      >
+        <form
+          className="auth-form"
+          onSubmit={run(async () => {
+            setNotice(null)
+            await auth.resendVerification(email)
+            setNotice('Sent again, if a link was still waiting. One email goes out every 2 minutes at most.')
+          })}
+        >
+          {notice && <p className="muted small">{notice}</p>}
+          {failure}
+          {submit('Send again')}
+          <button type="button" className="btn-link" onClick={() => go('sign-in')}>
+            Back to sign in
+          </button>
+        </form>
+      </Card>
+    )
+  }
+
+  if (mode === 'verifying') {
+    return <Card title="Confirming your email" lead="One moment…" />
+  }
+
+  if (mode === 'verify-failed') {
+    return (
+      <Card title="That link didn't work" lead={error ?? 'This link has expired or was already used.'}>
+        <button type="button" className="btn-primary auth-submit" onClick={() => go('sign-in')}>
+          Sign in
+        </button>
       </Card>
     )
   }
@@ -161,11 +286,14 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
         <form
           className="auth-form"
           onSubmit={run(async () => {
-            await auth.forgot(email)
+            const problem = humanProblem()
+            if (problem) throw new Error(problem)
+            await auth.forgot(email, human)
             go('forgot-sent')
           })}
         >
           <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" autoFocus />
+          {humanCheck}
           {failure}
           {submit('Email me a link')}
           <button type="button" className="btn-link" onClick={() => go('sign-in')}>
@@ -225,9 +353,15 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
       <form
         className="auth-form"
         onSubmit={run(async () => {
-          const res = await auth.signIn(email, password)
-          if (res.two_step) go('code')
-          else if (res.user) onSignedIn(res.user)
+          try {
+            const res = await auth.signIn(email, password)
+            if (res.two_step) go('code')
+            else if (res.user) onSignedIn(res.user)
+          } catch (err) {
+            // The address is not confirmed yet (S10): the page to send the link again.
+            if (err instanceof ApiError && err.code === 'email_unverified') go('verify-sent')
+            else throw err
+          }
         })}
       >
         <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="username" autoFocus />
@@ -237,6 +371,13 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
         <button type="button" className="btn-link" onClick={() => go('forgot')}>
           Forgot password?
         </button>
+        {state.sign_up_open ? (
+          <button type="button" className="btn-link" onClick={() => go('create')}>
+            Create an account
+          </button>
+        ) : (
+          <p className="muted small">New accounts are paused for now.</p>
+        )}
       </form>
     </Card>
   )

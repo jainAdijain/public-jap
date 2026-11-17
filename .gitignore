@@ -17,6 +17,14 @@ docs/
 # Local notes for this machine (NOTES.local.md): never committed, this repo is public.
 NOTES.local.md
 
+# Coding agents: the shared config is tracked (.devin/config.json, .claude/settings.json,
+# .gemini/settings.json, .cursorignore); each person's overrides and session files are not.
+AGENTS.local.md
+CLAUDE.local.md
+.devin/*.local.json
+.claude/*.local.json
+.claude/worktrees/
+
 # Python
 __pycache__/
 *.py[cod]

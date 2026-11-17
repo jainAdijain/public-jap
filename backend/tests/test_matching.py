@@ -28,6 +28,7 @@ from pipeline.matching import (
     role_pattern,
     title_word_pattern,
 )
+from tests import mine
 
 PROFILE: dict[str, Any] = {
     "target_roles": ["Backend Engineer", "Python Developer"],
@@ -208,8 +209,8 @@ async def test_filter_bar_and_summary_add_up(
     assert sum(by_role.values()) == summary["totals"]["listings"]
 
     # Statuses count per listing; a closed listing leaves the totals and the default list.
-    sql.execute("UPDATE listing SET status = 'skipped' WHERE title_display = 'Python Developer'")
-    sql.execute("UPDATE listing SET status = 'closed' WHERE title_display = 'Platform Engineer'")
+    mine.status(sql, "skipped", "title_display = 'Python Developer'")
+    mine.status(sql, "closed", "title_display = 'Platform Engineer'")
     summary = (await api.get("/api/listings/summary")).json()
     assert summary["totals"]["listings"] == len(DEFAULT) - 1
     assert summary["totals"]["skipped"] == 1

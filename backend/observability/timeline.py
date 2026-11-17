@@ -5,8 +5,6 @@ and errors) and its model calls (llm_call: purpose, model, time taken, cost, nev
 text). Log events are kept 30 days; model calls stay as long as the application.
 """
 
-import uuid
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -83,8 +81,3 @@ async def timeline(session: AsyncSession, app: Application) -> Timeline:
         )
     items.sort(key=lambda i: i.at)
     return Timeline(application_id=app.id, status=app.status, items=items, kept_days=KEEP_LOGS.days)
-
-
-async def for_id(session: AsyncSession, app_id: uuid.UUID) -> Timeline | None:
-    app = await session.get(Application, app_id)
-    return await timeline(session, app) if app else None
