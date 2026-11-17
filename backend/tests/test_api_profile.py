@@ -3,6 +3,8 @@ from typing import Any
 import httpx
 import psycopg
 
+from tests import mine
+
 
 async def test_empty_profile_on_first_read(api: httpx.AsyncClient) -> None:
     body = (await api.get("/api/profile")).json()
@@ -46,10 +48,11 @@ async def test_save_and_reload(
     # A rule saved with skills keeps its other conditions (PRD 1.21): skills never hide a job.
     assert body["match_rule"] == [["location", "role"]]
     assert body["links"] == [{"label": "GitHub", "url": "https://github.com/asharao"}]
-    assert events == [("profile/saved", {})]
+    user_id = (await api.get("/api/auth/me")).json()["id"]
+    assert events == [("profile/saved", {"user_id": user_id})]  # the search is that user's
     contact = await api.put("/api/profile", json={**PROFILE, "phone": "+91 99999 00000"})
     assert contact.status_code == 200
-    assert events == [("profile/saved", {})]  # contact details alone start no search
+    assert len(events) == 1  # contact details alone start no search
 
 
 async def test_work_mode_is_required(api: httpx.AsyncClient) -> None:
@@ -87,9 +90,10 @@ async def test_switches(api: httpx.AsyncClient) -> None:
 
 async def test_spend_shows_this_month(api: httpx.AsyncClient, sql: psycopg.Connection[Any]) -> None:
     sql.execute(
-        "INSERT INTO llm_call (purpose, model, prompt_version, input_sha256, cost_usd) "
-        "VALUES ('extract', 'm', 'v1', repeat('a', 64), 0.0125),"
-        " ('extract', 'm', 'v1', repeat('b', 64), 0.5)"
+        "INSERT INTO llm_call (purpose, model, prompt_version, input_sha256, cost_usd, user_id) "
+        f"VALUES ('answer', 'm', 'v1', repeat('a', 64), 0.0125, {mine.ME}),"
+        f" ('answer', 'm', 'v1', repeat('b', 64), 0.5, {mine.ME}),"
+        " ('extract', 'm', 'v1', repeat('c', 64), 0.25, NULL)"  # shared postings: not mine
     )
     sql.execute("UPDATE llm_call SET created_at = now() - interval '40 days' WHERE cost_usd = 0.5")
     body = (await api.get("/api/profile")).json()

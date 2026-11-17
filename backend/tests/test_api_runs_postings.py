@@ -19,7 +19,8 @@ async def test_find_only_run_is_queued_once(
     assert first.status_code == 202 and first.json()["status"] == "queued"
     second = await api.post("/api/runs", json={})
     assert second.json()["id"] == first.json()["id"]  # repeats collapse (T4)
-    assert events == [("run/requested", {"run_id": first.json()["id"]})]
+    user_id = (await api.get("/api/auth/me")).json()["id"]
+    assert events == [("run/requested", {"run_id": first.json()["id"], "user_id": user_id})]
     latest = await api.get("/api/runs/latest")
     assert latest.json()["id"] == first.json()["id"]
     bad = await api.post("/api/runs", json={"mode": "find_everything"})

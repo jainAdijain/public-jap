@@ -2,6 +2,11 @@
 
 Upserts, so it is safe to repeat: boards you removed in the UI stay removed, and
 aliases are refreshed from the file.
+
+The seeded companies are the admin's starting list (PRD S1, S7). A board is shared and is
+fetched only while someone follows it, so a new board is followed for the admin when there
+is one, and waits switched off for the first account to follow otherwise (auth/accounts.py).
+Nobody else starts with them.
 """
 
 import asyncio
@@ -13,8 +18,10 @@ from typing import Any
 import yaml
 from sqlalchemy.dialects.postgresql import insert
 
-from database.models import SkillAlias, WatchedBoard
+from database import tenant
+from database.models import BoardFollow, SkillAlias, WatchedBoard
 from database.session import get_sessionmaker
+from pipeline.workspace import admin_id
 
 # In the app container seed/ is mounted at /seed; elsewhere it sits at the repo root.
 SEED_DIR = Path(os.environ.get("JAP_SEED_DIR", Path(__file__).resolve().parents[2] / "seed"))
@@ -47,19 +54,31 @@ def check_skills(data: Any) -> int:
 
 
 async def upsert(companies: Any, skills: dict[str, str]) -> None:
+    with tenant.as_system():
+        await _upsert(companies, skills)
+
+
+async def _upsert(companies: Any, skills: dict[str, str]) -> None:
     async with get_sessionmaker()() as session:
+        admin = await admin_id(session)
         for ats, boards in companies.items():
             for board in boards or []:
-                await session.execute(
+                new = await session.scalar(
                     insert(WatchedBoard)
                     .values(
                         ats=ats,
                         board_token=str(board["token"]).lower(),
                         display_name=board["name"],
                         origin="seed",
+                        active=admin is not None,
                     )
                     .on_conflict_do_nothing(index_elements=["ats", "board_token"])
+                    .returning(WatchedBoard.id)
                 )
+                if new is not None and admin is not None:
+                    await session.execute(
+                        insert(BoardFollow).values(user_id=admin, board_id=new, active=True)
+                    )
         for alias, canonical in skills.items():
             stmt = insert(SkillAlias).values(alias=alias.lower(), canonical=canonical.lower())
             await session.execute(

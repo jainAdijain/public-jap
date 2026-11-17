@@ -13,6 +13,7 @@ import psycopg
 import pytest
 
 import llm.client as client
+from config import get_settings
 from database.session import get_sessionmaker
 from functions.health_watch import find_step, send_step
 from llm import call
@@ -25,6 +26,7 @@ from observability.sentry import before_send
 from pipeline import notify
 from pipeline.apply import flow
 from schemas.resume import ParsedResume
+from tests import mine
 from tests.test_apply import _listing, _profile, _resume
 from tests.test_llm_call import GOOD, Stub
 
@@ -225,10 +227,11 @@ async def test_health_alerts_are_sent_once(
         sent.append(mail)
 
     monkeypatch.setattr(notify, "send", fake_send)
-    sql.execute("INSERT INTO profile (email, spend_cap_usd) VALUES ('me@example.com', 1.00)")
+    monkeypatch.setattr(get_settings(), "jap_total_cost_cap_usd", 1.0)
+    sql.execute("INSERT INTO profile (email, spend_cap_usd) VALUES ('me@example.com', 0.50)")
     sql.execute(
-        "INSERT INTO llm_call (purpose, model, prompt_version, input_sha256, cost_usd)"
-        " VALUES ('answer', 'm', 'v1', 'x', 0.85)"
+        "INSERT INTO llm_call (purpose, model, prompt_version, input_sha256, cost_usd, user_id)"
+        f" VALUES ('answer', 'm', 'v1', 'x', 0.85, {mine.ME})"
     )
     sql.execute(
         "INSERT INTO run (trigger, mode, status, started_at) VALUES"
@@ -242,13 +245,14 @@ async def test_health_alerts_are_sent_once(
         )
     due = await find_step()
     keys = sorted(a["key"].split(":")[0] for a in due)
-    assert keys == ["errors", "spend-80", "stuck-run"]
+    # spend-80 is the service's total, for the admin; spend-user is that user's own limit.
+    assert keys == ["errors", "spend-80", "spend-user", "stuck-run"]
     for alert in due:
         assert await send_step(alert) == "sent"
         assert await send_step(alert) == "already sent"
     assert await find_step() == []
-    assert len(sent) == 3 and all(m.to == "me@example.com" for m in sent)
-    spend = next(m for m in sent if "AI limit" in m.subject)
+    assert len(sent) == 4 and all(m.to == "me@example.com" for m in sent)
+    spend = next(m for m in sent if "total AI limit" in m.subject)
     assert spend.subject.startswith("[DEV] JAP alert: 85%")
     assert "/#settings" in spend.body
 
@@ -338,8 +342,8 @@ async def test_insights_funnel_sources_and_spend(
     resume = _resume(sql, tmp_path)
     a = _listing(sql, "Backend Engineer", "1")
     b = _listing(sql, "Data Engineer", "2", company="Beta")
-    sql.execute("INSERT INTO listing (company_id, canonical_role, title_display)"
-                " SELECT company_id, 'x', 'Unmatched' FROM listing LIMIT 1")  # fmt: skip
+    unmatched = _listing(sql, "Unmatched", "3")  # found on a board I follow, not a match
+    sql.execute("DELETE FROM user_listing WHERE listing_id = %s", (unmatched,))
     for listing, status, error in ((a, "applied", None), (b, "failed", "Form changed")):
         sql.execute(
             "INSERT INTO application (listing_id, posting_id, status, mode, resume_version_id,"
@@ -348,9 +352,11 @@ async def test_insights_funnel_sources_and_spend(
             (status, resume, status, error, listing),
         )
     sql.execute(
-        "INSERT INTO llm_call (purpose, model, prompt_version, input_sha256, cost_usd) VALUES"
-        " ('answer', 'm1', 'v1', 'x', 0.02), ('answer', 'm1', 'v1', 'x', 0.01),"
-        " ('extract', 'm2', 'v1', 'x', 0.005)"
+        "INSERT INTO llm_call (purpose, model, prompt_version, input_sha256, cost_usd, user_id)"
+        f" VALUES ('answer', 'm1', 'v1', 'x', 0.02, {mine.ME}),"
+        f" ('answer', 'm1', 'v1', 'x', 0.01, {mine.ME}),"
+        f" ('check', 'm2', 'v1', 'x', 0.005, {mine.ME}),"
+        " ('extract', 'm2', 'v1', 'x', 0.5, NULL)"  # shared postings: not on my Insights
     )
     body = (await api.get("/api/insights", params={"weeks": 4})).json()
     assert len(body["funnel"]) == 4

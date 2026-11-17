@@ -1,31 +1,35 @@
 """Health alert emails (PRD O6), checked every hour by health-watch.
 
-An email goes to the address on My profile when:
-- the Daily search didn't start (half an hour after its time)
+An email goes to the admin when:
+- someone's Daily search didn't start (half an hour after its time)
 - a search has been stuck for over 30 minutes
 - more errors than JAP_ALERT_ERRORS_PER_HOUR happened in the last hour
-- AI spend reached 80% or 100% of this month's cap
+- AI spend reached 80% or 100% of this month's total limit, or reading shared postings
+  reached the service's budget
 - the disk that holds data/ is more than 85% full
+and to a user when their own AI allowance for the month is used up (PRD S12, S13).
 Failed searches, failed applications and failed form tests already have their own alerts
 (pipeline/alerts.py). Each alert has a key that includes the day (or the month for spend, or
 the run for a stuck search), and alert_state remembers it was sent, so one problem sends at
 most one email a day. JAP_ALERTS_ENABLED=false (dev, test) sends nothing.
 """
 
+import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from database.models import AlertState, LogEvent, Profile, RouteStat
-from llm.spend import month_spend
+from database.models import AlertState, LlmCall, LogEvent, RateLimit, RouteStat
+from llm.spend import month_spend, month_start, system_spend, total_spend
 from observability import status as health
 from pipeline.notify import EmailNotSent, Mail
+from pipeline.workspace import admin_id, contact_email
 
 DISK_LIMIT_PCT = 85.0
 KEEP_LOGS = timedelta(days=30)
@@ -36,6 +40,7 @@ class Alert:
     key: str
     subject: str
     lines: list[str]
+    user_id: str | None = None  # whose alert it is; None: the service's, sent to the admin
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -53,15 +58,15 @@ async def due(session: AsyncSession, now: datetime | None = None) -> list[Alert]
     day, month = local.strftime("%Y-%m-%d"), local.strftime("%Y-%m")
     found: list[Alert] = []
 
-    daily = await health.daily_search(session, now)
-    if daily.missed:
+    missed = await health.missed_daily(session, now)
+    if missed:
         found.append(
             Alert(
                 f"daily-missed:{day}",
                 "JAP alert: today's Daily search didn't start",
                 [
-                    f"The Daily search is set for {daily.at} ({settings.jap_tz}) and has not "
-                    "started today.",
+                    f"The Daily search of {missed} account{'s' if missed != 1 else ''} was due "
+                    "and has not started today.",
                     "The Mac may have been asleep, or Docker or Inngest may not be running.",
                 ],
             )
@@ -89,17 +94,18 @@ async def due(session: AsyncSession, now: datetime | None = None) -> list[Alert]
                 + [f"- {g.event} ({g.count}): {g.last_message[:200]}" for g in groups],
             )
         )
-    spend = await month_spend(session)
+    spend = await total_spend(session)
     pct = 100 * spend.month_usd / spend.cap_usd if spend.cap_usd else 100.0
     if pct >= 100:
         found.append(
             Alert(
                 f"spend-100:{month}",
-                "JAP alert: the AI spend limit is reached",
+                "JAP alert: the total AI spend limit is reached",
                 [
-                    f"${spend.month_usd:.2f} of ${spend.cap_usd:.2f} is used this month.",
-                    "JAP has stopped reading descriptions and writing answers and letters until "
-                    "next month or until the limit is raised in Settings.",
+                    f"${spend.month_usd:.2f} of ${spend.cap_usd:.2f} is used this month, across "
+                    "every user and the shared job postings.",
+                    "JAP has stopped reading descriptions and writing answers and letters for "
+                    "everyone until next month or until JAP_TOTAL_COST_CAP_USD is raised.",
                 ],
             )
         )
@@ -107,10 +113,44 @@ async def due(session: AsyncSession, now: datetime | None = None) -> list[Alert]
         found.append(
             Alert(
                 f"spend-80:{month}",
-                f"JAP alert: {pct:.0f}% of this month's AI limit is used",
+                f"JAP alert: {pct:.0f}% of this month's total AI limit is used",
                 [f"${spend.month_usd:.2f} of ${spend.cap_usd:.2f} is used this month."],
             )
         )
+    shared = await system_spend(session)
+    if shared.reached:
+        found.append(
+            Alert(
+                f"spend-system:{month}",
+                "JAP alert: the budget for reading job postings is used up",
+                [
+                    f"${shared.month_usd:.2f} of ${shared.cap_usd:.2f} is used this month.",
+                    "New job descriptions are not being read (skills, work mode) until next "
+                    "month or until JAP_SYSTEM_COST_CAP_USD is raised.",
+                ],
+            )
+        )
+    spenders = await session.scalars(
+        select(LlmCall.user_id)
+        .where(LlmCall.user_id.is_not(None), LlmCall.created_at >= month_start(settings.jap_tz))
+        .group_by(LlmCall.user_id)
+        .having(func.sum(LlmCall.cost_usd) > 0)
+    )
+    for uid in spenders:
+        own = await month_spend(session, uid)
+        if own.reached:
+            found.append(
+                Alert(
+                    f"spend-user:{uid}:{month}",
+                    "JAP: your AI limit for this month is reached",
+                    [
+                        f"${own.month_usd:.2f} of ${own.cap_usd:.2f} is used this month.",
+                        "JAP has stopped drafting answers and writing cover letters for you "
+                        "until next month. Finding jobs carries on.",
+                    ],
+                    user_id=str(uid),
+                )
+            )
     space = health.disk()
     if space.used_pct > DISK_LIMIT_PCT:
         found.append(
@@ -136,9 +176,10 @@ async def due(session: AsyncSession, now: datetime | None = None) -> list[Alert]
 
 
 async def mail_for(session: AsyncSession, alert: Alert) -> Mail:
-    email = await session.scalar(select(Profile.email))
+    to = alert.user_id or await admin_id(session)
+    email = await contact_email(session, uuid.UUID(str(to))) if to else None
     if not email:
-        raise EmailNotSent("My profile has no email address")
+        raise EmailNotSent("There is no email address to write to")
     env = get_settings().jap_env
     subject = alert.subject if env == "prod" else f"[{env.upper()}] {alert.subject}"
     body = "\n".join([*alert.lines, "", f"Status in JAP: {_ui()}"]) + "\n"
@@ -151,7 +192,10 @@ async def already_sent(session: AsyncSession, key: str) -> bool:
 
 async def mark_sent(session: AsyncSession, alert: Alert, now: datetime | None = None) -> None:
     stmt = insert(AlertState).values(
-        key=alert.key, last_sent_at=now or datetime.now(UTC), detail=alert.subject
+        key=alert.key,
+        last_sent_at=now or datetime.now(UTC),
+        detail=alert.subject,
+        user_id=uuid.UUID(alert.user_id) if alert.user_id else None,
     )
     await session.execute(stmt.on_conflict_do_nothing(index_elements=["key"]))
     await session.commit()
@@ -165,9 +209,14 @@ async def cleanup(session: AsyncSession, now: datetime | None = None) -> dict[st
     keys = await session.execute(
         delete(AlertState).where(AlertState.last_sent_at < now - timedelta(days=90))
     )
+    # Sign-up and forgot-password tries (auth/limits.py) are counted per hour; a day is plenty.
+    tries = await session.execute(
+        delete(RateLimit).where(RateLimit.window_start < now - timedelta(days=1))
+    )
     await session.commit()
     return {
         "log_events": int(getattr(logs, "rowcount", 0) or 0),
         "route_stats": int(getattr(routes, "rowcount", 0) or 0),
         "alert_keys": int(getattr(keys, "rowcount", 0) or 0),
+        "rate_limits": int(getattr(tries, "rowcount", 0) or 0),
     }

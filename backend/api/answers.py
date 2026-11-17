@@ -1,4 +1,4 @@
-"""Answer bank (U9): saved answers to application form questions."""
+"""Answer bank (U9): the signed-in user's saved answers to application form questions (S7)."""
 
 import uuid
 
@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import ApiError
+from database import tenant
 from database.models import AnswerBank
 from database.session import Session
 from pipeline.apply.answers import normalize_question
@@ -21,7 +22,11 @@ def to_out(a: AnswerBank) -> AnswerOut:
 
 
 async def _get(session: AsyncSession, answer_id: uuid.UUID) -> AnswerBank:
-    row = await session.get(AnswerBank, answer_id)
+    row = await session.scalar(
+        select(AnswerBank).where(
+            AnswerBank.id == answer_id, AnswerBank.user_id == tenant.user_id(session)
+        )
+    )
     if row is None:
         raise ApiError(404, "not_found", "No such answer")
     return row
@@ -37,13 +42,18 @@ async def _commit(session: AsyncSession) -> None:
 
 @router.get("", response_model=list[AnswerOut])
 async def answers(session: Session) -> list[AnswerOut]:
-    rows = await session.scalars(select(AnswerBank).order_by(AnswerBank.question_pattern))
+    rows = await session.scalars(
+        select(AnswerBank)
+        .where(AnswerBank.user_id == tenant.user_id(session))
+        .order_by(AnswerBank.question_pattern)
+    )
     return [to_out(a) for a in rows]
 
 
 @router.post("", response_model=AnswerOut, status_code=201)
 async def add(body: AnswerIn, session: Session) -> AnswerOut:
     row = AnswerBank(
+        user_id=tenant.user_id(session),
         question_pattern=body.question.strip(),
         question_norm=normalize_question(body.question),
         answer=body.answer.strip(),

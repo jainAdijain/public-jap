@@ -1,13 +1,14 @@
 """Cross-platform dedup (D1 to D6): every posting joins exactly one listing.
 
-A posting with no listing yet is placed, in this order: my remembered merge or split
-(dedup_override), a shared requisition ID, an exact match on (canonical company, canonical
-role), a near match (title similarity 0.9 or more and description cosine 0.92 or more), or a
-new listing. A pair just below the near-match bar becomes a Possible duplicate, which
-settle_duplicates() hands to the extract model: it reads both descriptions once and JAP
-merges the pair or keeps it apart (PRD 1.7, Near match). I am never asked. Placed postings
-keep their listing on later runs, so merges and splits stay put and a repost of an old role
-joins its old listing (D4).
+A posting with no listing yet is placed, in this order: a remembered merge or split
+(dedup_override, the admin's: listings are shared, so one person's judgement of what is the
+same job applies to everyone, PRD S7), a shared requisition ID, an exact match on
+(canonical company, canonical role), a near match (title similarity 0.9 or more and
+description cosine 0.92 or more), or a new listing. A pair just below the near-match bar
+becomes a Possible duplicate, which settle_duplicates() hands to the extract model: it
+reads both descriptions once and JAP merges the pair or keeps it apart (PRD 1.7, Near
+match). I am never asked. Placed postings keep their listing on later runs, so merges and
+splits stay put and a repost of an old role joins its old listing (D4).
 """
 
 import logging
@@ -29,11 +30,13 @@ from database.models import (
     Listing,
     PossibleDuplicate,
     Posting,
+    UserListing,
     WatchedBoard,
 )
 from llm import PersonalDataBlocked, Sensitive, SpendCapReached, call
 from llm.client import ModelCallError
 from pipeline.canonical import canonical_role, clean_company, seniority_of
+from pipeline.workspace import sync_status
 
 log = logging.getLogger(__name__)
 
@@ -228,7 +231,7 @@ def _when(p: Posting) -> datetime:
 
 async def refresh_listings(session: AsyncSession, listing_ids: set[uuid.UUID]) -> None:
     """Recompute each listing from its postings: primary (D1, D2), merged locations (D3),
-    extracted fields, posted dates and Closed. A listing left with no postings is removed."""
+    extracted fields, posted dates and closed_at. A listing left with no postings is removed."""
     if not listing_ids:
         return
     by_listing: dict[uuid.UUID, list[Posting]] = defaultdict(list)
@@ -266,14 +269,14 @@ async def refresh_listings(session: AsyncSession, listing_ids: set[uuid.UUID]) -
         listing.seniority = seniority if seniority and seniority != "unknown" else None
         listing.first_posted_at = min(_when(p) for p in postings)
         listing.last_posted_at = max(_when(p) for p in postings)
-        if not open_ and listing.status == "not_applied":
-            listing.status = "closed"
+        if open_:
+            listing.closed_at = None
+        elif listing.closed_at is None:
             closed = [p.closed_at for p in postings if p.closed_at]
             listing.closed_at = max(closed) if closed else func.now()
-        elif open_ and listing.status == "closed":
-            listing.status = "not_applied"
-            listing.closed_at = None
     await session.flush()
+    # Not applied and Closed follow the postings, for each user who has the listing (S7).
+    await sync_status(session, listing_ids)
 
 
 async def _drop_listing(session: AsyncSession, listing: Listing) -> None:
@@ -314,7 +317,15 @@ async def merge_listings(session: AsyncSession, keep_id: uuid.UUID, other_id: uu
     other = await session.get(Listing, other_id)
     if keep is None or other is None:
         raise LookupError("No such listing")
-    if other.status not in ("not_applied", "closed", "skipped"):
+    applied = await session.scalar(
+        select(UserListing.user_id)
+        .where(
+            UserListing.listing_id == other_id,
+            UserListing.status.not_in(("not_applied", "closed", "skipped")),
+        )
+        .limit(1)
+    )
+    if applied is not None:
         raise DedupConflict("That listing has an application; merge the other way round")
     moved = list(await session.scalars(select(Posting).where(Posting.listing_id == other_id)))
     for p in moved:

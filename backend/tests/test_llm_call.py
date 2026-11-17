@@ -14,6 +14,9 @@ from llm.redact import Redaction, Sensitive
 from schemas.resume import ParsedResume
 from tests.test_redact import ME
 
+# Every model call is someone's (PRD S12): these run as the owner, as a request would.
+pytestmark = pytest.mark.usefixtures("owner")
+
 RESUME = (
     "Asha Rao, asha.rao@example.com, +91 98765 43210, github.com/asharao\n"
     "Backend engineer: Python, FastAPI, Postgres."

@@ -1,8 +1,9 @@
 import { useEffect, useState, type InputHTMLAttributes, type ReactNode } from 'react'
 
-import { api, type Run, type Status, type Switches } from '../api/client'
+import { admin, api, type Accounts, type Run, type Status, type Switches } from '../api/client'
 import { atsLabel, errorText, money, STARTED_BY, when } from '../format'
 import { useApp } from '../appContext'
+import { useAuth } from '../authContext'
 import AccountSection from './AccountSection'
 
 const hhmm = (t: string) => t.slice(0, 5)
@@ -383,8 +384,92 @@ function Health() {
   )
 }
 
+const ACCOUNT_STATE = { active: 'Active', unverified: 'Email not confirmed', off: 'Turned off' }
+
+/** Accounts (PRD S12), for the admin: who has one, turning one off, pausing sign-up, and
+ * what the AI has cost this month. Nothing a user wrote is shown here. */
+function AccountsCard() {
+  const { toast } = useApp()
+  const [data, setData] = useState<Accounts | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  useEffect(() => {
+    const stop = new AbortController()
+    admin.accounts(stop.signal).then(setData, (err) => {
+      if (!stop.signal.aborted) setFailed(errorText(err))
+    })
+    return () => stop.abort()
+  }, [])
+  const act = async (fn: () => Promise<Accounts>, done: string) => {
+    try {
+      setData(await fn())
+      toast(done)
+    } catch (err) {
+      toast({ text: errorText(err), bad: true })
+    }
+  }
+  return (
+    <div className="sec">
+      <div className="sec-l">
+        <h2>Accounts</h2>
+        <p>Everyone with an account on this JAP. Only you see this.</p>
+      </div>
+      <div className="sec-r">
+        {failed && <span className="error-text small">{failed}</span>}
+        {!data && !failed && <span className="muted">Loading…</span>}
+        {data && (
+          <>
+            <label className="inline">
+              <input
+                type="checkbox"
+                checked={!data.sign_up_paused}
+                onChange={(e) => act(() => admin.pauseSignUp(!e.target.checked), e.target.checked ? 'Anyone can create an account again.' : 'New accounts are paused. Existing ones carry on.')}
+              />
+              Anyone can create an account
+            </label>
+            <span className="muted small">
+              AI this month: <span className="mono">{money(data.spend_total.month_usd)}</span> of <span className="mono">{money(data.spend_total.cap_usd)}</span> in all, of which{' '}
+              <span className="mono">{money(data.spend_shared.month_usd)}</span> of <span className="mono">{money(data.spend_shared.cap_usd)}</span> for reading job descriptions, which everyone shares.
+            </span>
+            <div className="health accounts">
+              {data.accounts.map((a) => (
+                <div key={a.id} className="hrow">
+                  <i className={a.state === 'active' ? 'ok' : a.state === 'off' ? 'bad' : ''} />
+                  <b>
+                    {a.email}
+                    {a.is_admin && <span className="muted"> · admin</span>}
+                  </b>
+                  <span className="hd muted">
+                    {ACCOUNT_STATE[a.state]} · joined {when(a.joined_at)} · {a.last_sign_in_at ? `last signed in ${when(a.last_sign_in_at)}` : 'never signed in'} · AI{' '}
+                    {money(a.spend.month_usd)} of {money(a.spend.cap_usd)}
+                  </span>
+                  {!a.is_admin &&
+                    (a.state === 'off' ? (
+                      <button type="button" className="btn-link" onClick={() => act(() => admin.turnOn(a.id), `${a.email} is on again.`)}>
+                        Turn on
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn-link"
+                        title="Signs the account out everywhere and stops its searches and applications. Its data is kept."
+                        onClick={() => act(() => admin.turnOff(a.id), `${a.email} is turned off and signed out.`)}
+                      >
+                        Turn off
+                      </button>
+                    ))}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const { profile, setProfile, toast } = useApp()
+  const { user } = useAuth()
   const flip = async (s: Switches, done?: string) => {
     try {
       setProfile(await api.setSwitches(s))
@@ -516,7 +601,7 @@ export default function SettingsPage() {
       <div className="sec">
         <div className="sec-l">
           <h2>AI usage</h2>
-          <p>An AI model reads job descriptions and writes answers and cover letters.</p>
+          <p>An AI model reads your resume and writes your answers and cover letters. This is your own allowance for the month; reading job descriptions is shared and does not count against it.</p>
         </div>
         <div className="sec-r">
           <div className="inline spread">
@@ -544,16 +629,24 @@ export default function SettingsPage() {
           </div>
           <span className={spend.reached ? 'error-text small' : 'muted small'}>
             {spend.reached
-              ? 'Limit reached: JAP has stopped reading descriptions and writing answers and letters until next month or until you raise the limit.'
-              : 'When the limit is reached, JAP stops reading descriptions and writing answers and letters until next month, and a banner shows on Jobs.'}
+              ? 'Limit reached: JAP has stopped writing answers and cover letters for you until next month. Finding jobs carries on.'
+              : user.is_admin
+                ? 'When the limit is reached, JAP stops writing answers and letters for you until next month, and a banner shows on Jobs.'
+                : 'When the limit is reached, JAP stops writing answers and letters for you until next month, and a banner shows on Jobs. You can lower the limit, not raise it above your plan.'}
           </span>
         </div>
       </div>
 
       <AccountSection />
 
-      <SystemStatus />
-      <Health />
+      {/* The service as a whole is the admin's (S12): nobody else can read or change it. */}
+      {user.is_admin && (
+        <>
+          <AccountsCard />
+          <SystemStatus />
+          <Health />
+        </>
+      )}
     </section>
   )
 }

@@ -5,6 +5,12 @@ and never sent for extraction. The rest is extracted once per description: a pos
 extracted_hash equals its description_hash is skipped, so an unchanged posting costs
 nothing on the next run. The embedding is cached the same way and costs nothing anyway
 (Ollama on the Mac).
+
+A posting is shared, so reading it is nobody's work in particular (PRD S7): it is billed to
+the service's budget, and nothing of any user's profile goes near it. The description is
+redacted generically, the way any text from outside is. To keep that budget for jobs
+someone wants, a posting is read only when its title is in a target role of at least one
+user who follows its board (or one of them has no target roles, and so wants every job).
 """
 
 import uuid
@@ -16,9 +22,11 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from database.models import Posting, Profile, WatchedBoard
+from database.models import BoardFollow, Posting, Profile, WatchedBoard
 from llm import call
-from pipeline.resume import normalize_skills, sensitive_from_profile, skill_aliases
+from llm.redact import Sensitive
+from pipeline.resume import normalize_skills, skill_aliases
+from pipeline.runs import in_scope, role_matcher
 from schemas.extract import FIELDS, Extracted, from_output, output_model
 from sources import ashby
 
@@ -57,9 +65,35 @@ async def wanted_posting(session: AsyncSession, posting_id: uuid.UUID) -> Postin
     return posting if board is not None and board.active else None
 
 
+class Wanted:
+    """Which titles on a board someone wants read: those in a target role of a user who
+    follows it, or every title when one of them has no target roles."""
+
+    def __init__(self, roles_of_followers: list[list[str] | None]) -> None:
+        self.everything = any(not roles for roles in roles_of_followers)
+        self.matchers = [role_matcher(roles) for roles in roles_of_followers if roles]
+
+    def title(self, title: str) -> bool:
+        return self.everything or any(in_scope(title, m) for m in self.matchers)
+
+
+async def wanted_on(session: AsyncSession, board_id: uuid.UUID) -> Wanted:
+    """Run as the service, which is what lets it read every follower's target roles; it
+    reads nothing else of theirs."""
+    rows = await session.execute(
+        select(Profile.target_roles)
+        .select_from(BoardFollow)
+        .outerjoin(Profile, Profile.user_id == BoardFollow.user_id)
+        .where(BoardFollow.board_id == board_id, BoardFollow.active)
+    )
+    return Wanted([roles for (roles,) in rows.all()])
+
+
 async def extract_posting(session: AsyncSession, posting_id: uuid.UUID) -> ExtractResult:
     posting = await wanted_posting(session, posting_id)
     if posting is None:
+        return ExtractResult(skipped=True, fields=[])
+    if not (await wanted_on(session, posting.watched_board_id)).title(posting.title_raw):
         return ExtractResult(skipped=True, fields=[])
     if posting.extracted_hash == posting.description_hash:
         return ExtractResult(skipped=True, fields=[])  # cached by description hash (I4)
@@ -69,7 +103,6 @@ async def extract_posting(session: AsyncSession, posting_id: uuid.UUID) -> Extra
     sent: str | None = None
     values: dict[str, Any] = dict(direct)
     if wanted and posting.description_text.strip():
-        profile = await session.scalar(select(Profile))
         result = await call(
             session,
             "extract",
@@ -80,7 +113,7 @@ async def extract_posting(session: AsyncSession, posting_id: uuid.UUID) -> Extra
                 "description_text": posting.description_text[:MAX_JD_CHARS],
             },
             output_model(wanted),
-            sensitive=sensitive_from_profile(profile),
+            sensitive=Sensitive(),
             generic_redact=frozenset({"description_text"}),
         )
         sent = result.model_input

@@ -5,6 +5,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api import (
+    admin,
     answers,
     applications,
     auth,
@@ -21,7 +22,7 @@ from api import (
     runs,
 )
 from auth import guards
-from auth.deps import current_user
+from auth.deps import admin_user, current_user
 from config import get_settings
 from functions import ALL_FUNCTIONS, inngest_client
 from observability.http import RequestLog
@@ -47,11 +48,14 @@ guards.install(app)
 # Open without a session: /api/health (service status only) and the sign-in routes (PRD S6).
 app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
-# Everything else needs a signed-in session (PRD S6, S7).
+# Everything else needs a signed-in session, and works on that user's own data (PRD S6, S7).
 for module in (
-    profile, resumes, boards, answers, runs, postings, listings, duplicates, applications, ops,
-    insights,
+    profile, resumes, boards, answers, runs, postings, listings, applications, insights,
 ):  # fmt: skip
     app.include_router(module.router, prefix="/api", dependencies=[Depends(current_user)])
+# The service as a whole is the admin's: health, backups, form tests, duplicates, accounts
+# (PRD S12). To anyone else these routes are Not Found.
+for module in (ops, duplicates, admin):
+    app.include_router(module.router, prefix="/api", dependencies=[Depends(admin_user)])
 
 inngest.fast_api.serve(app, inngest_client, ALL_FUNCTIONS, serve_path="/api/inngest")

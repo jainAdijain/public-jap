@@ -2,6 +2,8 @@
 
 The embedding comes first because it is local and quick, and dedup waits for it. Once the
 fields are extracted, the posting's listing is refreshed (skills, work mode, seniority).
+A posting is shared, so this runs as the service and bills its budget (PRD S7); the listing
+is then re-filtered for every user it concerns, each with their own profile.
 Concurrency 4, 2 retries. A spend cap, a missing key or a blocked request stops this
 posting without retrying; it is picked up again on the next run (its hash still differs).
 """
@@ -19,7 +21,7 @@ from llm import PersonalDataBlocked, SpendCapReached
 from llm.client import MissingApiKey, OutOfCredits
 from pipeline.dedup import refresh_listings
 from pipeline.enrich import EmbedFailed, embed_posting, extract_posting
-from pipeline.matching import refilter_from_profile
+from pipeline.matching import refilter_users
 
 
 async def extract_step(posting_id: str) -> dict[str, Any]:
@@ -31,7 +33,7 @@ async def extract_step(posting_id: str) -> dict[str, Any]:
         posting = await session.get(Posting, uuid.UUID(posting_id))
         if posting is not None and posting.listing_id is not None and not result.skipped:
             await refresh_listings(session, {posting.listing_id})
-            await refilter_from_profile(session, [posting.listing_id])  # new skills, work mode
+            await refilter_users(session, [posting.listing_id])  # new skills, work mode
             await session.commit()
     return {
         "skipped": result.skipped,

@@ -2,6 +2,10 @@
 
 Every press writes the application row first and then sends its event, so apply-listing
 reads the new status when it wakes (pipeline/apply/flow.py).
+
+An application belongs to one user (PRD S7). Every route here finds it by id and owner
+together, so another user's id answers Not Found, the same as an id that does not exist, and
+its files (screenshot, trace, cover letter) are served only through that owned row.
 """
 
 import uuid
@@ -9,17 +13,19 @@ from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import ApiError
-from config import get_settings
-from database.models import Application, Listing, ResumeVersion
+from database import tenant
+from database.models import Application, ResumeVersion
 from database.session import Session
 from functions.events import send
 from observability import timeline
+from pipeline import storage
 from pipeline.apply.answers import save_to_bank
 from pipeline.apply.flow import MAYBE_SENT, letter_fields, set_letter
+from pipeline.workspace import set_status
 from schemas.application import (
     AnswerQuestionsIn,
     AnswersIn,
@@ -40,15 +46,6 @@ router = APIRouter(tags=["applications"])
 
 def _exists(path: str | None) -> bool:
     return bool(path) and Path(str(path)).exists()
-
-
-def _inside_data(path: str | None) -> bool:
-    root = Path(get_settings().jap_data_dir).resolve()
-    return bool(path) and Path(str(path)).resolve().is_relative_to(root) and _exists(path)
-
-
-async def _listing_to(session: AsyncSession, listing_id: uuid.UUID, status: str) -> None:
-    await session.execute(update(Listing).where(Listing.id == listing_id).values(status=status))
 
 
 def _letter_out(app: Application) -> CoverLetterOut | None:
@@ -117,7 +114,10 @@ async def to_out(session: AsyncSession, app: Application) -> ApplicationOut:
 
 
 async def get_app(session: AsyncSession, app_id: uuid.UUID, *, lock: bool = False) -> Application:
-    app = await session.get(Application, app_id, with_for_update=lock)
+    query = select(Application).where(
+        Application.id == app_id, Application.user_id == tenant.user_id(session)
+    )
+    app = await session.scalar(query.with_for_update() if lock else query)
     if app is None:
         raise ApiError(404, "not_found", "No such application")
     return app
@@ -155,10 +155,7 @@ async def one(app_id: uuid.UUID, session: Session) -> ApplicationOut:
 @router.get("/applications/{app_id}/timeline", response_model=Timeline)
 async def application_timeline(app_id: uuid.UUID, session: Session) -> Timeline:
     """What JAP did for this application, step by step (PRD O8)."""
-    found = await timeline.for_id(session, app_id)
-    if found is None:
-        raise ApiError(404, "not_found", "Application not found")
-    return found
+    return await timeline.timeline(session, await get_app(session, app_id))
 
 
 @router.put("/applications/{app_id}", response_model=ApplicationOut)
@@ -191,9 +188,9 @@ async def approve(app_id: uuid.UUID, session: Session) -> ApplicationOut:
     if missing:
         raise ApiError(422, "validation", f"Required and empty: {'; '.join(missing)}")
     app.status = "applying"
-    await _listing_to(session, app.listing_id, "applying")
+    await set_status(session, app.listing_id, "applying")
     await session.commit()
-    await send("application/approved", {"application_id": str(app.id)})
+    await send("application/approved", {"application_id": str(app.id), "user_id": str(app.user_id)})
     await session.refresh(app)
     return await to_out(session, app)
 
@@ -219,9 +216,9 @@ async def answer(app_id: uuid.UUID, body: AnswerQuestionsIn, session: Session) -
             await save_to_bank(session, q["label"], given[q["key"]])
     app.status = "preparing"
     app.pending_questions = [q for q in app.pending_questions or [] if q.get("key") == "captcha"]
-    await _listing_to(session, app.listing_id, "applying")
+    await set_status(session, app.listing_id, "applying")
     await session.commit()
-    await send("application/answered", {"application_id": str(app.id)})
+    await send("application/answered", {"application_id": str(app.id), "user_id": str(app.user_id)})
     await session.refresh(app)
     return await to_out(session, app)
 
@@ -236,12 +233,17 @@ async def retry(app_id: uuid.UUID, session: Session, body: RetryIn | None = None
         raise ApiError(409, "submit_maybe_sent", MAYBE_SENT)
     newer = await session.scalar(
         select(Application.id).where(
-            Application.listing_id == app.listing_id, Application.created_at > app.created_at
+            Application.user_id == app.user_id,
+            Application.listing_id == app.listing_id,
+            Application.created_at > app.created_at,
         )
     )
     if newer is not None:
         raise ApiError(409, "conflict", "A newer attempt exists for this job")
-    await send("listing/apply.requested", {"listing_id": str(app.listing_id), "run_id": None})
+    await send(
+        "listing/apply.requested",
+        {"listing_id": str(app.listing_id), "run_id": None, "user_id": str(app.user_id)},
+    )
     return ApplyQueued(listing_id=app.listing_id, queued=True)
 
 
@@ -256,8 +258,8 @@ async def file(kind: str, app_id: uuid.UUID, session: Session) -> FileResponse:
     }
     if kind not in paths:
         raise ApiError(404, "not_found", "No such file kind")
-    path, media = paths[kind]
-    if not _inside_data(path):
+    stored, media = paths[kind]
+    path = storage.served(stored)
+    if path is None:
         raise ApiError(404, "not_found", f"No {kind.replace('_', ' ')} for this application")
-    assert path is not None
-    return FileResponse(path, media_type=media, filename=Path(path).name)
+    return FileResponse(path, media_type=media, filename=path.name)

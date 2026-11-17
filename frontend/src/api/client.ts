@@ -353,20 +353,31 @@ export type Ops = {
   form_checks: FormCheck[]
 }
 
-export type User = { email: string; is_admin: boolean; two_step: boolean; recovery_codes_left: number }
-export type AuthState = { has_accounts: boolean; sign_up_open: boolean; user: User | null; two_step_pending: boolean }
-export type SignInResult = { signed_in: boolean; two_step: boolean; user: User | null }
+export type User = { id: string; email: string; is_admin: boolean; two_step: boolean; recovery_codes_left: number }
+export type AuthState = {
+  has_accounts: boolean
+  sign_up_open: boolean // false while the admin has sign-up paused (S12)
+  user: User | null
+  two_step_pending: boolean
+  turnstile_site_key: string // set: sign-up and forgot password show the "prove you're human" check
+}
+// verify_email: a new account has no session yet; the page says Check your email (S10).
+export type SignInResult = { signed_in: boolean; two_step: boolean; user: User | null; verify_email?: boolean }
 export type TwoStepSetup = { secret: string; uri: string; qr_svg: string }
 
 export const auth = {
   state: () => request<AuthState>('/api/auth/state'),
-  signUp: (email: string, password: string) => request<SignInResult>('/api/auth/sign-up', json('POST', { email, password })),
+  signUp: (email: string, password: string, turnstile?: string | null) =>
+    request<SignInResult>('/api/auth/sign-up', json('POST', { email, password, turnstile: turnstile ?? null })),
+  verify: (token: string) => request<SignInResult>('/api/auth/verify', json('POST', { token })),
+  resendVerification: (email: string) => request<{ queued: boolean }>('/api/auth/verify/resend', json('POST', { email })),
   signIn: (email: string, password: string) => request<SignInResult>('/api/auth/sign-in', json('POST', { email, password })),
   code: (code: string) => request<SignInResult>('/api/auth/sign-in/code', json('POST', { code })),
   signOut: () => request<void>('/api/auth/sign-out', json('POST', {})),
   signOutEverywhere: () => request<void>('/api/auth/sign-out-everywhere', json('POST', {})),
   me: () => request<User>('/api/auth/me'),
-  forgot: (email: string) => request<{ queued: boolean }>('/api/auth/forgot', json('POST', { email })),
+  forgot: (email: string, turnstile?: string | null) =>
+    request<{ queued: boolean }>('/api/auth/forgot', json('POST', { email, turnstile: turnstile ?? null })),
   reset: (token: string, password: string) => request<void>('/api/auth/reset', json('POST', { token, password })),
   changePassword: (current: string, next: string) =>
     request<void>('/api/auth/password', json('POST', { current_password: current, new_password: next })),
@@ -375,6 +386,25 @@ export const auth = {
   twoStepOff: (password: string) => request<void>('/api/auth/two-step/off', json('POST', { password })),
   newRecoveryCodes: (password: string) =>
     request<{ recovery_codes: string[] }>('/api/auth/two-step/recovery-codes', json('POST', { password })),
+}
+
+// The admin's view of the service (S12). Nothing a user wrote is in it.
+export type Account = {
+  id: string
+  email: string
+  is_admin: boolean
+  joined_at: string
+  last_sign_in_at: string | null
+  state: 'active' | 'unverified' | 'off'
+  spend: Spend
+}
+export type Accounts = { accounts: Account[]; sign_up_paused: boolean; spend_total: Spend; spend_shared: Spend }
+
+export const admin = {
+  accounts: (signal?: AbortSignal) => request<Accounts>('/api/admin/accounts', { signal }),
+  turnOff: (id: string) => request<Accounts>(`/api/admin/accounts/${id}/off`, json('POST', {})),
+  turnOn: (id: string) => request<Accounts>(`/api/admin/accounts/${id}/on`, json('POST', {})),
+  pauseSignUp: (paused: boolean) => request<Accounts>('/api/admin/sign-up', json('PUT', { paused })),
 }
 
 export type RunBrief = { id: string; trigger: string; status: string; started_at: string; ended_at: string | null; error: string | null }

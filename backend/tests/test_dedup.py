@@ -11,6 +11,7 @@ from database.session import get_sessionmaker
 from functions.fetch_board import fetch_step
 from pipeline.dedup import Settled, dedup, settle_duplicates
 from tests import boards as b
+from tests import mine
 from tests.test_ingest import _board
 from tests.test_llm_call import Stub
 
@@ -130,7 +131,7 @@ async def test_closed_postings_close_the_listing_and_reposts_rejoin(
     await fetch_step(board_id)
     async with get_sessionmaker()() as session:
         await dedup(session)
-    [(listing_id, status)] = sql.execute("SELECT id, status FROM listing").fetchall()
+    [(listing_id, status)] = sql.execute(f"SELECT id, status FROM {mine.LISTINGS} l").fetchall()
     assert status == "not_applied"
 
     from functions.fetch_board import close_step
@@ -141,7 +142,8 @@ async def test_closed_postings_close_the_listing_and_reposts_rejoin(
         since = sql.execute("SELECT now() - interval '1 minute'").fetchone()
         assert since is not None
         await dedup(session, since=since[0])
-    assert sql.execute("SELECT status FROM listing").fetchone() == ("closed",)
+    assert sql.execute(f"SELECT status FROM {mine.LISTINGS} l").fetchone() == ("closed",)
+    assert sql.execute("SELECT closed_at IS NOT NULL FROM listing").fetchone() == (True,)
 
     # A repost months later (new id, same role) joins the old listing (D4).
     routes[f"{GH}/discord/jobs"] = b.greenhouse(
@@ -151,7 +153,9 @@ async def test_closed_postings_close_the_listing_and_reposts_rejoin(
     async with get_sessionmaker()() as session:
         counts = await dedup(session)
     assert counts.merged == 1 and counts.new_listings == 0
-    assert sql.execute("SELECT id, status FROM listing").fetchall() == [(listing_id, "not_applied")]
+    assert sql.execute(f"SELECT id, status, closed_at FROM {mine.LISTINGS} l").fetchall() == [
+        (listing_id, "not_applied", None)
+    ]
 
 
 async def test_requisition_id_joins_different_titles(

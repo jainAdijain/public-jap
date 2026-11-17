@@ -1,7 +1,9 @@
 """parse-resume (T1): extract text locally, ask the model for suggestions, save them.
 
 The suggestions wait for me in the UI (accept or edit), not in Inngest. Steps return ids,
-counts and the redacted text that went to the model, never the resume itself.
+counts and the redacted text that went to the model, never the resume itself. The event
+names the user (PRD S13): the resume is found only as theirs, redaction uses their own
+contact details, and the model call is billed to their allowance.
 """
 
 import uuid
@@ -10,20 +12,33 @@ from typing import Any
 
 import inngest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import Profile, ResumeVersion
+from database import tenant
+from database.models import ResumeVersion
 from database.session import get_sessionmaker
 from functions.client import inngest_client
 from llm import PersonalDataBlocked, SpendCapReached, call
 from llm.client import MissingApiKey, OutOfCredits
 from llm.redact import find_links, from_resume_text
 from pipeline.resume import extract_text, normalize_skills, sensitive_from_profile, skill_aliases
+from pipeline.workspace import profile_of
 from schemas.resume import ParsedResume
+
+
+async def _version(session: AsyncSession, version_id: str) -> ResumeVersion | None:
+    found: ResumeVersion | None = await session.scalar(
+        select(ResumeVersion).where(
+            ResumeVersion.id == uuid.UUID(version_id),
+            ResumeVersion.user_id == tenant.user_id(session),
+        )
+    )
+    return found
 
 
 async def _set_error(version_id: str, message: str, *, keep_existing: bool = False) -> None:
     async with get_sessionmaker()() as session:
-        version = await session.get(ResumeVersion, uuid.UUID(version_id))
+        version = await _version(session, version_id)
         if version is not None and not (keep_existing and version.parse_error):
             version.parse_error = message
             await session.commit()
@@ -41,7 +56,7 @@ async def _failed(ctx: inngest.Context) -> None:
 
 async def extract_step(version_id: str) -> dict[str, Any]:
     async with get_sessionmaker()() as session:
-        version = await session.get(ResumeVersion, uuid.UUID(version_id))
+        version = await _version(session, version_id)
         if version is None:
             raise inngest.NonRetriableError("resume version not found")
         text = extract_text(Path(version.file_path), version.mime)
@@ -57,11 +72,11 @@ async def extract_step(version_id: str) -> dict[str, Any]:
 
 async def parse_step(version_id: str) -> dict[str, Any]:
     async with get_sessionmaker()() as session:
-        version = await session.get(ResumeVersion, uuid.UUID(version_id))
+        version = await _version(session, version_id)
         if version is None or not version.text:
             raise inngest.NonRetriableError("resume text missing")
         resume_text = version.text
-        profile = await session.scalar(select(Profile))
+        profile = await profile_of(session)
         # Profile contact details first; on a first upload, what the resume shows.
         sensitive = sensitive_from_profile(profile).merge(from_resume_text(resume_text))
         try:
@@ -78,7 +93,7 @@ async def parse_step(version_id: str) -> dict[str, Any]:
             raise inngest.NonRetriableError(str(exc)) from exc
         parsed = result.output
         skills = normalize_skills(parsed.skills, await skill_aliases(session))
-        version = await session.get(ResumeVersion, uuid.UUID(version_id))
+        version = await _version(session, version_id)
         assert version is not None
         version.parsed = {
             "skills": skills,

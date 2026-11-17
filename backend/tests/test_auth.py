@@ -9,6 +9,7 @@ import psycopg
 import pytest
 
 from auth import passwords, totp
+from pipeline.notify import Mail
 from tests.conftest import OWNER_EMAIL, OWNER_PASSWORD
 
 NEW_PASSWORD = "a different long one"
@@ -87,13 +88,24 @@ async def test_file_links_need_a_session(api: httpx.AsyncClient, anon: httpx.Asy
         assert (await anon.get(path)).status_code == 401
 
 
-# --- the first account (S1, step 1) -----------------------------------------------------------
+# --- the first account (S1) ---------------------------------------------------------------------
 
 
-async def test_first_account_is_the_admin_and_then_sign_up_closes(anon: httpx.AsyncClient) -> None:
+async def test_first_account_is_the_admin_and_needs_no_email_check(
+    anon: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first account is the admin and is signed in at once. The next one is an ordinary
+    account that waits for its emailed link (S10; tests/test_sign_up.py has the rest)."""
+    sent: list[Mail] = []
+
+    async def fake_send(mail: Mail) -> None:
+        sent.append(mail)
+
+    monkeypatch.setattr("api.auth.send_mail", fake_send)
     state = (await anon.get("/api/auth/state")).json()
     assert state == {
-        "has_accounts": False, "sign_up_open": True, "user": None, "two_step_pending": False
+        "has_accounts": False, "sign_up_open": True, "user": None, "two_step_pending": False,
+        "turnstile_site_key": "",
     }  # fmt: skip
     short = await anon.post("/api/auth/sign-up", json={"email": OWNER_EMAIL, "password": "short"})
     assert short.status_code == 422 and short.json()["error"]["code"] == "weak_password"
@@ -103,16 +115,22 @@ async def test_first_account_is_the_admin_and_then_sign_up_closes(anon: httpx.As
     )
     assert resp.status_code == 201
     assert resp.json()["user"]["email"] == OWNER_EMAIL
-    assert resp.json()["user"]["is_admin"] is True
+    assert resp.json()["user"]["is_admin"] is True and resp.json()["signed_in"] is True
     assert (await anon.get("/api/profile")).status_code == 200
+    assert sent == []
 
+    await anon.post("/api/auth/sign-out")
     again = await anon.post(
         "/api/auth/sign-up", json={"email": "someone@else.com", "password": OWNER_PASSWORD}
     )
-    assert again.status_code == 409 and again.json()["error"]["code"] == "sign_up_closed"
+    assert again.status_code == 201
+    assert again.json() == {
+        "signed_in": False, "two_step": False, "user": None, "verify_email": True
+    }  # fmt: skip
+    assert [m.to for m in sent] == ["someone@else.com"]
+    assert (await anon.get("/api/profile")).status_code == 401  # no session before the link
     state = (await anon.get("/api/auth/state")).json()
-    assert state["has_accounts"] and not state["sign_up_open"]
-    assert state["user"]["email"] == OWNER_EMAIL
+    assert state["has_accounts"] and state["sign_up_open"] and state["user"] is None
 
 
 async def test_admin_email_setting_limits_the_first_account(
@@ -307,6 +325,7 @@ async def _turn_on_two_step(api: httpx.AsyncClient) -> tuple[str, list[str]]:
     codes = (await api.post("/api/auth/two-step/confirm", json={"code": _code(secret)})).json()
     assert len(codes["recovery_codes"]) == 8
     me = (await api.get("/api/auth/me")).json()
+    me.pop("id")
     assert me == {
         "email": OWNER_EMAIL,
         "is_admin": True,
@@ -320,7 +339,9 @@ async def test_two_step_sign_in(api: httpx.AsyncClient) -> None:
     secret, _ = await _turn_on_two_step(api)
     client = await _signed_out(api)
     first = await _sign_in(client)
-    assert first.json() == {"signed_in": False, "two_step": True, "user": None}
+    assert first.json() == {
+        "signed_in": False, "two_step": True, "user": None, "verify_email": False
+    }  # fmt: skip
     assert (await client.get("/api/profile")).status_code == 401  # the password alone is not enough
     assert (await client.get("/api/auth/state")).json()["two_step_pending"] is True
 

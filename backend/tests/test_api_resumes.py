@@ -94,7 +94,7 @@ async def test_parse_then_accept(
     # Accepting starts a run by itself (T1), after the resume upload's own event.
     [run] = sql.execute("SELECT id, trigger, status FROM run").fetchall()
     assert run[1:] == ("resume_updated", "queued")
-    assert events[-1] == ("run/requested", {"run_id": str(run[0])})
+    assert events[-1][0] == "run/requested" and events[-1][1]["run_id"] == str(run[0])
 
 
 def test_links_hidden_behind_words_are_found(tmp_path: Path) -> None:

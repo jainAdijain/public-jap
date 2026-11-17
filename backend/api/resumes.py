@@ -1,4 +1,5 @@
-"""Resume versions (T1, U7): upload, list, download, accept the parsed skills."""
+"""Resume versions (T1, U7): upload, list, download, accept the parsed skills. Each user
+has their own versions and their own active one; another user's id answers Not Found (S7)."""
 
 import uuid
 from datetime import UTC, datetime
@@ -10,12 +11,12 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import ApiError
-from api.profile import load_profile
 from api.runs import request_run
-from config import get_settings
+from database import tenant
 from database.models import ResumeVersion
 from database.session import Session
 from functions.events import send
+from pipeline import storage
 from pipeline.matching import Criteria, refilter
 from pipeline.resume import (
     MAX_BYTES,
@@ -25,6 +26,7 @@ from pipeline.resume import (
     skill_aliases,
     store,
 )
+from pipeline.workspace import load_profile
 from schemas.resume import AcceptSkills, ResumeOut
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
@@ -50,7 +52,11 @@ def to_out(v: ResumeVersion) -> ResumeOut:
 
 
 async def get_version(session: AsyncSession, version_id: uuid.UUID) -> ResumeVersion:
-    version = await session.get(ResumeVersion, version_id)
+    version = await session.scalar(
+        select(ResumeVersion).where(
+            ResumeVersion.id == version_id, ResumeVersion.user_id == tenant.user_id(session)
+        )
+    )
     if version is None:
         raise ApiError(404, "not_found", "No such resume version")
     return version
@@ -66,13 +72,17 @@ async def upload(file: UploadFile, session: Session) -> ResumeOut:
     except BadResume as exc:
         raise ApiError(422, "validation", str(exc)) from exc
 
+    uid = tenant.user_id(session)
     version_id = uuid.uuid4()
-    path, sha = store(Path(get_settings().jap_data_dir), str(version_id), mime, data)
+    path, sha = store(storage.user_dir(uid), str(version_id), mime, data)
     # The newest upload is the file attached to applications from now on.
-    await session.execute(update(ResumeVersion).values(is_active=False))
+    await session.execute(
+        update(ResumeVersion).where(ResumeVersion.user_id == uid).values(is_active=False)
+    )
     session.add(
         ResumeVersion(
             id=version_id,
+            user_id=uid,
             file_path=str(path),
             file_sha256=sha,
             original_name=Path(file.filename or "resume").name,
@@ -81,20 +91,27 @@ async def upload(file: UploadFile, session: Session) -> ResumeOut:
         )
     )
     await session.commit()
-    await send("resume/uploaded", {"resume_version_id": str(version_id)})
+    await send("resume/uploaded", {"resume_version_id": str(version_id), "user_id": str(uid)})
     return to_out(await get_version(session, version_id))
 
 
 @router.get("", response_model=list[ResumeOut])
 async def versions(session: Session) -> list[ResumeOut]:
-    rows = await session.scalars(select(ResumeVersion).order_by(ResumeVersion.uploaded_at.desc()))
+    rows = await session.scalars(
+        select(ResumeVersion)
+        .where(ResumeVersion.user_id == tenant.user_id(session))
+        .order_by(ResumeVersion.uploaded_at.desc())
+    )
     return [to_out(v) for v in rows]
 
 
 @router.get("/{version_id}/file")
 async def download(version_id: uuid.UUID, session: Session) -> FileResponse:
     v = await get_version(session, version_id)
-    return FileResponse(v.file_path, media_type=v.mime, filename=v.original_name)
+    path = storage.served(v.file_path)
+    if path is None:
+        raise ApiError(404, "not_found", "The file of this resume version is gone")
+    return FileResponse(path, media_type=v.mime, filename=v.original_name)
 
 
 @router.post("/{version_id}/accept", response_model=ResumeOut)
@@ -110,7 +127,9 @@ async def accept(version_id: uuid.UUID, body: AcceptSkills, session: Session) ->
     profile.must_have_skills = must
     profile.nice_to_have_skills = nice
     await session.execute(
-        update(ResumeVersion).where(ResumeVersion.id != v.id).values(is_active=False)
+        update(ResumeVersion)
+        .where(ResumeVersion.user_id == v.user_id, ResumeVersion.id != v.id)
+        .values(is_active=False)
     )
     v.is_active = True
     v.accepted_at = datetime.now(UTC)

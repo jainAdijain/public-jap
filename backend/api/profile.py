@@ -1,33 +1,23 @@
-"""GET, PUT and PATCH /api/profile (U7 to U10)."""
+"""GET, PUT and PATCH /api/profile (U7 to U10): the signed-in user's own profile (S7)."""
 
 from decimal import Decimal
 
 from fastapi import APIRouter
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from database import tenant
 from database.models import Profile
 from database.session import Session
 from functions.events import send
 from llm.spend import month_spend
 from pipeline.matching import Criteria, preview_counts, refilter
 from pipeline.resume import normalize_skills, skill_aliases
+from pipeline.workspace import load_profile
 from schemas.profile import MatchPreview, ProfileIn, ProfileOut, ProfileSaved, ProfileSwitches
 
 router = APIRouter(prefix="/profile", tags=["profile"])
 
 FIELDS = list(ProfileIn.model_fields)
-
-
-async def load_profile(session: AsyncSession) -> Profile:
-    """The single profile row, created empty the first time."""
-    profile: Profile | None = await session.scalar(select(Profile))
-    if profile is None:
-        profile = Profile()
-        session.add(profile)
-        await session.commit()
-    await session.refresh(profile)
-    return profile
 
 
 async def to_out(session: AsyncSession, profile: Profile) -> ProfileOut:
@@ -75,7 +65,7 @@ async def save_profile(body: ProfileIn, session: Session) -> ProfileSaved:
     await session.commit()
     await session.refresh(profile)
     if Criteria.of(profile) != before:  # contact details or the letter style alone: no search
-        await send("profile/saved")
+        await send("profile/saved", {"user_id": str(tenant.user_id(session))})
     out = await to_out(session, profile)
     return ProfileSaved(**out.model_dump(), matching_count=matching)
 

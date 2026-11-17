@@ -23,6 +23,7 @@ from functions.triggers import daily_step
 from pipeline import alerts, backup, form_check, notify
 from pipeline.apply import flow
 from pipeline.apply.form import FormError, FormRead, SubmitResult
+from tests import mine
 from tests.test_apply import (
     FORM,
     NOTICE,
@@ -125,8 +126,8 @@ async def test_spend_cap_from_profile_stops_letters(
     api: httpx.AsyncClient,
 ) -> None:  # fmt: skip
     sql.execute(
-        "INSERT INTO llm_call (purpose, model, prompt_version, input_sha256, cost_usd)"
-        " VALUES ('answer', 'm', 'v1', %s, 0.06)",
+        "INSERT INTO llm_call (purpose, model, prompt_version, input_sha256, cost_usd, user_id)"
+        f" VALUES ('answer', 'm', 'v1', %s, 0.06, {mine.ME})",
         ("0" * 64,),
     )
     profile = (await api.get("/api/profile")).json()

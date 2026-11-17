@@ -21,6 +21,7 @@ from pipeline import notify
 from pipeline.apply import flow
 from pipeline.apply.form import FormField, FormRead, SubmitResult
 from pipeline.matching import Criteria, refilter
+from tests import mine
 from tests.test_llm_call import Stub
 
 FORM = [
@@ -78,13 +79,15 @@ def _listing(
         (company, company, company_id),
     ).fetchone()
     assert board is not None
+    mine.follow(sql)
     role = title.lower()
     listing = sql.execute(
-        "INSERT INTO listing (company_id, canonical_role, title_display, matched, last_posted_at)"
-        " VALUES (%s, %s, %s, '{role}', now()) RETURNING id",
+        "INSERT INTO listing (company_id, canonical_role, title_display, last_posted_at)"
+        " VALUES (%s, %s, %s, now()) RETURNING id",
         (company_id, role, title),
     ).fetchone()
     assert listing is not None
+    mine.listed(sql, f"id = '{listing[0]}'")
     posting = sql.execute(
         "INSERT INTO posting (source, external_id, watched_board_id, listing_id, company_name_raw,"
         " title_raw, canonical_role, posting_url, apply_url, description_html, description_text,"
@@ -107,6 +110,12 @@ def _listing(
         "UPDATE listing SET primary_posting_id = %s WHERE id = %s", (posting[0], listing[0])
     )
     return str(listing[0])
+
+
+@pytest.fixture
+def me(owner: uuid.UUID) -> dict[str, str]:
+    """What every event sent for the owner carries (PRD S13)."""
+    return {"user_id": str(owner)}
 
 
 @pytest.fixture
@@ -136,8 +145,8 @@ async def _prepare(listing_id: str) -> str:
 
 def _status(sql: psycopg.Connection[Any], app_id: str) -> tuple[str, str]:
     row = sql.execute(
-        "SELECT a.status, l.status FROM application a JOIN listing l ON l.id = a.listing_id"
-        " WHERE a.id = %s",
+        f"SELECT a.status, l.status FROM application a JOIN {mine.LISTINGS} l"
+        " ON l.id = a.listing_id WHERE a.id = %s",
         (app_id,),
     ).fetchone()
     assert row is not None
@@ -147,10 +156,13 @@ def _status(sql: psycopg.Connection[Any], app_id: str) -> tuple[str, str]:
 async def test_apply_now_stops_at_ready_for_review(
     setup: dict[str, Any], sql: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch,
     api: httpx.AsyncClient, events: list[tuple[str, dict[str, Any]]],
+    me: dict[str, str],
 ) -> None:  # fmt: skip
     resp = await api.post(f"/api/listings/{setup['listing']}/apply")
     assert resp.status_code == 202
-    assert events == [("listing/apply.requested", {"listing_id": setup["listing"], "run_id": None})]
+    assert events == [
+        ("listing/apply.requested", {"listing_id": setup["listing"], "run_id": None, **me})
+    ]
 
     _fake_form(monkeypatch, FORM)
     submitted: list[str] = []
@@ -185,6 +197,7 @@ async def test_apply_now_stops_at_ready_for_review(
 async def test_edit_skip_and_undo(
     setup: dict[str, Any], sql: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch,
     api: httpx.AsyncClient, events: list[tuple[str, dict[str, Any]]],
+    me: dict[str, str],
 ) -> None:  # fmt: skip
     _fake_form(monkeypatch, FORM)
     app_id = await _prepare(setup["listing"])
@@ -198,7 +211,7 @@ async def test_edit_skip_and_undo(
     skipped = await api.post(f"/api/listings/{setup['listing']}/skip")
     assert skipped.json()["status"] == "skipped"
     assert _status(sql, app_id) == ("cancelled", "skipped")
-    assert events[-1] == ("application/cancelled", {"listing_id": setup["listing"]})
+    assert events[-1] == ("application/cancelled", {"listing_id": setup["listing"], **me})
     assert (await api.post(f"/api/applications/{app_id}/approve")).status_code == 409
     assert (await api.post(f"/api/listings/{setup['listing']}/apply")).status_code == 409
     undone = await api.post(f"/api/listings/{setup['listing']}/unskip")
@@ -278,6 +291,7 @@ async def test_writer_failure_shows_on_the_question_and_the_run(
 async def test_facts_only_i_know_go_to_needs_input_and_the_answer_bank(
     setup: dict[str, Any], sql: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch,
     api: httpx.AsyncClient, events: list[tuple[str, dict[str, Any]]],
+    me: dict[str, str],
 ) -> None:  # fmt: skip
     _fake_form(monkeypatch, [*FORM, NOTICE, AUTH])
     monkeypatch.setattr(client, "chat", Stub([]))  # no model call for these
@@ -296,7 +310,7 @@ async def test_facts_only_i_know_go_to_needs_input_and_the_answer_bank(
         json={"answers": {"notice": "30 days", "auth": "Yes"}, "save_to_bank": True},
     )
     assert resp.status_code == 200 and resp.json()["status"] == "preparing"
-    assert events[-1] == ("application/answered", {"application_id": app_id})
+    assert events[-1] == ("application/answered", {"application_id": app_id, **me})
     bank = (await api.get("/api/answers")).json()
     assert {(a["question"], a["answer"]) for a in bank} == {
         ("What is your notice period?", "30 days"),
@@ -334,6 +348,7 @@ async def test_captcha_and_missing_files_block(
 async def test_approve_submits_once_and_freezes(
     setup: dict[str, Any], sql: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch,
     api: httpx.AsyncClient, events: list[tuple[str, dict[str, Any]]],
+    me: dict[str, str],
 ) -> None:  # fmt: skip
     _fake_form(monkeypatch, FORM)
     app_id = await _prepare(setup["listing"])
@@ -359,7 +374,7 @@ async def test_approve_submits_once_and_freezes(
 
     resp = await api.post(f"/api/applications/{app_id}/approve")
     assert resp.status_code == 200 and resp.json()["status"] == "applying"
-    assert events[-1] == ("application/approved", {"application_id": app_id})
+    assert events[-1] == ("application/approved", {"application_id": app_id, **me})
     async with get_sessionmaker()() as session:
         assert await flow.submit(session, app_id) == {"status": "applied"}
     assert calls[0]["url"] == "https://example.com/jobs/1/apply"
@@ -400,7 +415,7 @@ async def test_approve_submits_once_and_freezes(
     run = (await api.post("/api/runs", json={"mode": "find_and_apply"})).json()
     async with get_sessionmaker()() as session:
         assert await flow.pick(session, run["id"]) == []
-    sql.execute("UPDATE listing SET status = 'not_applied' WHERE id = %s", (setup["listing"],))
+    mine.status(sql, "not_applied", "id = %s", (setup["listing"],))
     async with get_sessionmaker()() as session:  # even if its status were reset somehow
         assert await flow.why_not(session, uuid.UUID(setup["listing"])) == (
             "You already applied for this job"
@@ -543,7 +558,7 @@ async def test_find_and_apply_picks_within_the_cap(
 ) -> None:  # fmt: skip
     _listing(sql, "Platform Engineer", ext="2")
     skipped = _listing(sql, "Data Engineer", ext="3")
-    sql.execute("UPDATE listing SET status = 'skipped' WHERE id = %s", (skipped,))
+    mine.status(sql, "skipped", "id = %s", (skipped,))
     run = (await api.post("/api/runs", json={"mode": "find_and_apply"})).json()
     assert run["mode"] == "find_and_apply"
     async with get_sessionmaker()() as session:
@@ -566,6 +581,7 @@ async def test_find_and_apply_picks_within_the_cap(
 async def test_automatic_mode_picks_only_at_or_above_the_skills_bar(
     setup: dict[str, Any], sql: psycopg.Connection[Any], api: httpx.AsyncClient,
     events: list[tuple[str, dict[str, Any]]],
+    me: dict[str, str],
 ) -> None:  # fmt: skip
     """F6: Automatic mode applies on its own only at or above the bar (60% of my required
     skills by default). A job below it, or with Skills not stated, stays Not applied on the
@@ -581,7 +597,7 @@ async def test_automatic_mode_picks_only_at_or_above_the_skills_bar(
         await refilter(session, Criteria(target_roles=("Engineer",), match_rule=(("role",),),
                                          must_have_skills=("a", "b", "c", "d", "e")))  # fmt: skip
         await session.commit()
-    pcts = dict(sql.execute("SELECT id::text, required_pct FROM listing").fetchall())
+    pcts = dict(sql.execute("SELECT listing_id::text, required_pct FROM user_listing").fetchall())
     assert pcts == {at_bar: 60, below: 40, unknown: None, full: 100}
     run = (await api.post("/api/runs", json={"mode": "find_and_apply"})).json()
 
@@ -604,11 +620,11 @@ async def test_automatic_mode_picks_only_at_or_above_the_skills_bar(
     # The jobs held back are untouched: still listed, Not applied, and I can apply by hand.
     sql.execute("UPDATE profile SET must_have_skills = '{a,b,c,d,e}'")
     assert await picked() == {at_bar, full}
-    rows = sql.execute("SELECT status::text, matched IS NOT NULL FROM listing").fetchall()
+    rows = sql.execute("SELECT status::text, matched IS NOT NULL FROM user_listing").fetchall()
     assert rows == [("not_applied", True)] * 4
     by_hand = await api.post(f"/api/listings/{below}/apply")
     assert by_hand.status_code == 202
-    assert events[-1] == ("listing/apply.requested", {"listing_id": below, "run_id": None})
+    assert events[-1] == ("listing/apply.requested", {"listing_id": below, "run_id": None, **me})
 
 
 async def test_find_only_run_joins_upgrade_to_find_and_apply(
