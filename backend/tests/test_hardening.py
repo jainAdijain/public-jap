@@ -131,7 +131,7 @@ async def test_spend_cap_from_profile_stops_letters(
         ("0" * 64,),
     )
     profile = (await api.get("/api/profile")).json()
-    assert profile["spend"] == {"month_usd": 0.06, "cap_usd": 2.0, "reached": False}
+    assert profile["spend"] == {"month_usd": 0.06, "cap_usd": 1.0, "reached": False}
     lowered = (await api.patch("/api/profile", json={"spend_cap_usd": 0.05})).json()
     assert lowered["spend"]["cap_usd"] == 0.05 and lowered["spend"]["reached"] is True
 

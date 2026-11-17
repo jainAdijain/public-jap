@@ -79,6 +79,13 @@ export const STARTED_BY: Record<Run['trigger'], string> = {
 
 export const money = (n: number) => `$${n.toFixed(2)}`
 
+/** "1 company, 1 application a day, $1.00 of AI a month" (S12). */
+export function planWords(p: { boards: number | null; applications_per_day: number; ai_usd: number }): string {
+  const companies = p.boards === null ? 'any number of companies' : `${p.boards} ${p.boards === 1 ? 'company' : 'companies'}`
+  const sends = `${p.applications_per_day} ${p.applications_per_day === 1 ? 'application' : 'applications'} a day`
+  return `${companies}, ${sends}, $${p.ai_usd.toFixed(2)} of AI a month`
+}
+
 export const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
 /** The skills match as words (F5): "4 of 6 required (67%)", "2 of 5 nice to have", or

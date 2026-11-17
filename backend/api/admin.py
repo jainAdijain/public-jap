@@ -7,18 +7,21 @@ and stops its searches and applications; its data is kept, and turning it on res
 """
 
 import uuid
+from decimal import Decimal
 
 from fastapi import APIRouter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import ApiError
+from api.profile import plan_out
 from auth import accounts, sessions
 from auth.deps import AdminUser
 from database.models import AppUser
 from database.session import Session
 from llm.spend import month_spend, system_spend, total_spend
-from schemas.admin import AccountOut, Accounts, SignUpSwitch
+from pipeline.limits import limits_for
+from schemas.admin import AccountOut, Accounts, LimitsIn, SignUpSwitch
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -45,6 +48,7 @@ async def _overview(session: AsyncSession) -> Accounts:
                 last_sign_in_at=u.last_sign_in_at,
                 state=_state(u),
                 spend=await month_spend(session, u.id),
+                plan=plan_out(await limits_for(session, u.id)),
             )
             for u in users
         ],
@@ -84,6 +88,21 @@ async def turn_off(user_id: uuid.UUID, admin: AdminUser, session: Session) -> Ac
 async def turn_on(user_id: uuid.UUID, admin: AdminUser, session: Session) -> Accounts:
     user = await _account(session, user_id)
     user.disabled_at = None
+    await session.commit()
+    return await _overview(session)
+
+
+@router.put("/accounts/{user_id}/limits", response_model=Accounts)
+async def set_limits(
+    user_id: uuid.UUID, body: LimitsIn, admin: AdminUser, session: Session
+) -> Accounts:
+    """Give one account its own limits in place of the plan's (S12): AI spend a month,
+    companies followed, applications a day. A number left out goes back to the plan's.
+    Lowering the companies limit stops new follows; it unfollows nothing."""
+    user = await _account(session, user_id)
+    user.limit_ai_usd = Decimal(str(round(body.ai_usd, 2))) if body.ai_usd is not None else None
+    user.limit_boards = body.boards
+    user.limit_applications = body.applications_per_day
     await session.commit()
     return await _overview(session)
 

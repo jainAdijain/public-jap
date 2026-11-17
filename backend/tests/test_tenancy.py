@@ -206,6 +206,7 @@ async def test_another_users_ids_answer_not_found_on_every_route(
         ("GET", f"/api/ops/form-check/{NOBODY}/screenshot", None),
         ("POST", f"/api/admin/accounts/{NOBODY}/off", None),
         ("POST", f"/api/admin/accounts/{NOBODY}/on", None),
+        ("PUT", f"/api/admin/accounts/{NOBODY}/limits", {"ai_usd": 100}),
     ]
     from main import app
 
@@ -444,6 +445,49 @@ async def test_the_free_plan_caps_companies_followed(
 # --- each user's own AI allowance (S12) ---------------------------------------------------------
 
 
+async def test_the_admin_sets_one_accounts_limits(
+    api: httpx.AsyncClient, other: httpx.AsyncClient, other_id: uuid.UUID
+) -> None:
+    """The free plan is 1 company, 1 application a day and $1 of AI a month. The admin can
+    give any one account its own numbers, and put it back on the plan."""
+    plan = (await other.get("/api/profile")).json()
+    free = {"name": "Free", "boards": 1, "applications_per_day": 1, "ai_usd": 1.0, "custom": False}
+    assert plan["plan"] == free and plan["daily_cap"] == 1 and plan["spend"]["cap_usd"] == 1.0
+    board = {"ats": "lever", "board_token": "one", "display_name": "One"}
+    assert (await other.post("/api/boards", json=board)).status_code == 201
+    second = await other.post("/api/boards", json={**board, "board_token": "two"})
+    assert second.status_code == 409
+    assert "Your plan follows 1 company." in second.json()["error"]["message"]
+    # A user cannot raise their own daily cap past the plan, whatever they type.
+    typed = (await other.patch("/api/profile", json={"daily_cap": 50})).json()
+    assert typed["daily_cap"] == 1
+
+    limits = {"ai_usd": 7.5, "boards": 3, "applications_per_day": 10}
+    path = f"/api/admin/accounts/{other_id}/limits"
+    assert (await other.put(path, json=limits)).status_code == 404  # only the admin
+    saved = await api.put(path, json=limits)
+    assert saved.status_code == 200
+    account = saved.json()["accounts"][1]
+    assert account["plan"] == {"name": "Free", "boards": 3, "applications_per_day": 10,
+                               "ai_usd": 7.5, "custom": True}  # fmt: skip
+    mine_now = (await other.get("/api/profile")).json()
+    assert mine_now["plan"]["custom"] is True and mine_now["spend"]["cap_usd"] == 7.5
+    assert mine_now["daily_cap"] == 10  # the 50 they typed, held to the new limit
+    assert (
+        await other.post("/api/boards", json={**board, "board_token": "two"})
+    ).status_code == 201
+
+    # One number alone, and back to the plan: a number left out is the plan's again.
+    only_ai = (await api.put(path, json={"ai_usd": 3})).json()["accounts"][1]["plan"]
+    assert (only_ai["ai_usd"], only_ai["boards"], only_ai["applications_per_day"]) == (3.0, 1, 1)
+    back = (await api.put(path, json={})).json()["accounts"][1]["plan"]
+    assert back == free
+    assert len((await other.get("/api/boards")).json()) == 2  # lowering unfollows nothing
+    third = await other.post("/api/boards", json={**board, "board_token": "three"})
+    assert third.status_code == 409
+    assert (await api.put(path, json={"applications_per_day": 500})).status_code == 422
+
+
 async def _parse(user_id: uuid.UUID | None) -> None:
     scope = tenant.as_user(user_id) if user_id else tenant.as_system()
     with scope:
@@ -459,13 +503,13 @@ async def test_one_user_at_their_limit_stops_only_them(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:  # fmt: skip
     monkeypatch.setattr(client, "chat", Stub([GOOD] * 6, cost=2.5))
-    await _parse(other_id)  # $2.50 against a $2 allowance
-    with pytest.raises(SpendCapReached, match=r"\$2.50 of \$2.00"):
+    await _parse(other_id)  # $2.50 against a $1 allowance
+    with pytest.raises(SpendCapReached, match=r"\$2.50 of \$1.00"):
         await _parse(other_id)
     await _parse(owner)  # the owner carries on
     await _parse(None)  # and so does reading shared postings
     assert (await other.get("/api/profile")).json()["spend"] == {
-        "month_usd": 2.5, "cap_usd": 2.0, "reached": True,
+        "month_usd": 2.5, "cap_usd": 1.0, "reached": True,
     }  # fmt: skip
     assert (await api.get("/api/profile")).json()["spend"]["month_usd"] == 2.5
     async with get_sessionmaker()() as session:
@@ -477,9 +521,9 @@ async def test_one_user_at_their_limit_stops_only_them(
 
     # A user can lower their own limit, not raise it above the plan; the admin's stands.
     raised = (await other.patch("/api/profile", json={"spend_cap_usd": 50})).json()
-    assert raised["spend"]["cap_usd"] == 2.0 and raised["spend"]["reached"] is True
-    lowered = (await other.patch("/api/profile", json={"spend_cap_usd": 1})).json()
-    assert lowered["spend"]["cap_usd"] == 1.0
+    assert raised["spend"]["cap_usd"] == 1.0 and raised["spend"]["reached"] is True
+    lowered = (await other.patch("/api/profile", json={"spend_cap_usd": 0.5})).json()
+    assert lowered["spend"]["cap_usd"] == 0.5
     admins = (await api.patch("/api/profile", json={"spend_cap_usd": 50})).json()
     assert admins["spend"]["cap_usd"] == 50.0 and admins["spend"]["reached"] is False
 

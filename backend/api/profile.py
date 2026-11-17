@@ -10,25 +10,45 @@ from database.models import Profile
 from database.session import Session
 from functions.events import send
 from llm.spend import month_spend
+from pipeline.limits import Limits, limits_for
 from pipeline.matching import Criteria, preview_counts, refilter
 from pipeline.resume import normalize_skills, skill_aliases
 from pipeline.workspace import load_profile
-from schemas.profile import MatchPreview, ProfileIn, ProfileOut, ProfileSaved, ProfileSwitches
+from schemas.profile import (
+    MatchPreview,
+    Plan,
+    ProfileIn,
+    ProfileOut,
+    ProfileSaved,
+    ProfileSwitches,
+)
 
 router = APIRouter(prefix="/profile", tags=["profile"])
 
 FIELDS = list(ProfileIn.model_fields)
 
 
+def plan_out(limits: Limits) -> Plan:
+    return Plan(
+        name=limits.plan,
+        boards=limits.boards,
+        applications_per_day=limits.plan_applications,
+        ai_usd=limits.plan_ai_usd,
+        custom=limits.custom,
+    )
+
+
 async def to_out(session: AsyncSession, profile: Profile) -> ProfileOut:
     data = {f: getattr(profile, f) for f in FIELDS}
+    limits = await limits_for(session, profile.user_id)
     data.update(
         apply_mode=profile.apply_mode,
         daily_run=profile.daily_run,
         daily_run_at=profile.daily_run_at,
-        daily_cap=profile.daily_cap,
+        daily_cap=limits.applications_per_day,  # what is really sent: never over the plan
         auto_apply_min_skills=profile.auto_apply_min_skills,
         spend=await month_spend(session),
+        plan=plan_out(limits),
     )
     return ProfileOut.model_validate(data)
 

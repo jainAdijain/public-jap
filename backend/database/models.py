@@ -406,6 +406,10 @@ class AppUser(Timestamps, Base):
         DateTime(timezone=True), server_default=func.now()
     )
     last_sign_in_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # What the admin set for this account in place of the plan's numbers (None: the plan's).
+    limit_ai_usd: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
+    limit_boards: Mapped[int | None] = mapped_column(Integer)
+    limit_applications: Mapped[int | None] = mapped_column(Integer)
 
 
 class AuthSession(Timestamps, Base):

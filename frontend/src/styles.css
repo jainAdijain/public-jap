@@ -261,6 +261,8 @@ table.jobs tbody tr.closed .t-title { color: var(--muted); }
 .health .hd { min-width: 0; overflow-wrap: anywhere; }
 .accounts .hrow { grid-template-columns: 10px minmax(0, 1fr) minmax(0, 2fr) auto; }
 .accounts .hrow b { min-width: 0; overflow-wrap: anywhere; }
+.accounts .hrow { grid-template-columns: 10px minmax(0, 1fr) minmax(0, 2fr) auto auto; }
+.limits { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 6px 0 10px; }
 .meter { height: 6px; border-radius: 3px; background: var(--new-bg); overflow: hidden; }
 .meter span { display: block; height: 100%; background: var(--accent); }
 .meter.full span { background: var(--fail-fg); }

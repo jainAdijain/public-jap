@@ -13,7 +13,7 @@ async def test_empty_profile_on_first_read(api: httpx.AsyncClient) -> None:
     assert body["match_rule"] == [["location", "role"]]  # Job title and location fit (U17)
     assert body["remote_any"] is False
     assert body["apply_mode"] == "review"
-    assert body["spend"] == {"month_usd": 0.0, "cap_usd": 2.0, "reached": False}
+    assert body["spend"] == {"month_usd": 0.0, "cap_usd": 1.0, "reached": False}
 
 
 PROFILE = {

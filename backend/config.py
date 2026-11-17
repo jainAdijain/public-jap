@@ -26,13 +26,15 @@ class Settings(BaseSettings):
 
     # AI spend a month (PRD S12): each user's allowance, the service's own budget for
     # reading shared job postings, and the limit on everything together.
-    jap_monthly_cost_cap_usd: float = 2.0
+    jap_monthly_cost_cap_usd: float = 1.0
     jap_system_cost_cap_usd: float = 5.0
     jap_total_cost_cap_usd: float = 20.0
     # The free plan (pipeline/limits.py): companies one account may follow, and applications
-    # it may send a day. The admin is not held to either.
+    # it may send a day. The admin is not held to either, and can set any one account's own
+    # numbers in Settings > Accounts. The AI allowance above is sized to go with them: an
+    # application costs about 2 to 3 cents of AI, so one a day is under $1 a month.
     jap_free_boards: int = 1
-    jap_free_daily_applications: int = 20
+    jap_free_daily_applications: int = 1
 
     # The mailbox JAP sends from (E4): any SMTP server with a password, GoDaddy Professional
     # Email by default. A local test mailbox can take plain SMTP (SMTP_SSL=false) instead.

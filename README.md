@@ -106,14 +106,19 @@ screens) runs as the service (`backend/database/tenant.py`, migration `0013_rls`
   turn an account off (it is signed out everywhere and its searches and applications stop;
   its data is kept) or on again, and pause sign-up. System status, Health, backups, form
   tests and deciding duplicates are the admin's too; to anyone else those routes are Not Found.
-- **AI limits.** Each account has its own monthly allowance (`JAP_MONTHLY_COST_CAP_USD`, $2)
-  for work done for it: parsing its resume, drafting answers, writing cover letters. A user
-  can lower theirs in Settings, not raise it. Reading shared job descriptions is billed to
-  the service (`JAP_SYSTEM_COST_CAP_USD`), and everything together stops at
-  `JAP_TOTAL_COST_CAP_USD`. One person reaching their allowance stops only them. A
+- **The free plan** is what every account but the admin's gets: 1 company to follow
+  (`JAP_FREE_BOARDS`), 1 application a day (`JAP_FREE_DAILY_APPLICATIONS`) and $1 of AI a
+  month (`JAP_MONTHLY_COST_CAP_USD`; an application costs about 2 to 3 cents of AI, so one a
+  day stays under it). Settings shows it as **Your plan**, and Job preferences says how many
+  companies the plan follows. The admin can give any one account its own numbers for all
+  three (Settings > Accounts > Limits; an empty box is the plan's number) and is not held to
+  the plan themselves. A user can lower their own AI limit and daily cap, never raise them.
+- **AI limits.** An account's allowance pays for work done for it: parsing its resume,
+  drafting answers, writing cover letters. Reading shared job descriptions is billed to the
+  service instead (`JAP_SYSTEM_COST_CAP_USD`), which users never see, and everything together
+  stops at `JAP_TOTAL_COST_CAP_USD`. One person reaching their allowance stops only them. A
   description is read only when its title is in a target role of someone who follows that
-  company. The free plan also caps companies followed (`JAP_FREE_BOARDS`) and applications a
-  day (`JAP_FREE_DAILY_APPLICATIONS`); the admin is held to neither.
+  company.
 - **Files** (resumes, cover letters, screenshots, traces) are written under
   `data/users/<user id>/` and served only through the row that owns them. Files from before
   this keep their old paths and are served the same way.

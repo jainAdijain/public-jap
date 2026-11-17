@@ -102,7 +102,10 @@ async def add(body: BoardIn, user: CurrentUser, session: Session) -> BoardOut:
     )
     if limit is not None and int(following or 0) >= limit:
         raise ApiError(
-            409, "board_limit", f"You can follow {limit} companies. Stop following one first."
+            409,
+            "board_limit",
+            f"Your plan follows {limit} {'company' if limit == 1 else 'companies'}."
+            " Stop following one to add another.",
         )
     if board is None:
         # The name is the first follower's; a board others already follow keeps its name.

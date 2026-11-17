@@ -41,6 +41,8 @@ export type WorkMode = 'remote' | 'hybrid' | 'onsite'
 export type Condition = 'role' | 'location'
 export type Link = { label: string; url: string }
 export type Spend = { month_usd: number; cap_usd: number; reached: boolean }
+/** What this account may use (S12). boards null: no limit. custom: the admin set one of them. */
+export type Plan = { name: string; boards: number | null; applications_per_day: number; ai_usd: number; custom: boolean }
 
 export type ProfileFields = {
   full_name: string | null
@@ -69,6 +71,7 @@ export type Profile = ProfileFields & {
   /** Automatic mode sends only at or above this % of my required skills (F6); 0 is off. */
   auto_apply_min_skills: number
   spend: Spend
+  plan: Plan
 }
 
 export type Resume = {
@@ -397,13 +400,17 @@ export type Account = {
   last_sign_in_at: string | null
   state: 'active' | 'unverified' | 'off'
   spend: Spend
+  plan: Plan
 }
+/** The admin's numbers for one account; null puts that one back on the plan's. */
+export type AccountLimits = { ai_usd: number | null; boards: number | null; applications_per_day: number | null }
 export type Accounts = { accounts: Account[]; sign_up_paused: boolean; spend_total: Spend; spend_shared: Spend }
 
 export const admin = {
   accounts: (signal?: AbortSignal) => request<Accounts>('/api/admin/accounts', { signal }),
   turnOff: (id: string) => request<Accounts>(`/api/admin/accounts/${id}/off`, json('POST', {})),
   turnOn: (id: string) => request<Accounts>(`/api/admin/accounts/${id}/on`, json('POST', {})),
+  setLimits: (id: string, limits: AccountLimits) => request<Accounts>(`/api/admin/accounts/${id}/limits`, json('PUT', limits)),
   pauseSignUp: (paused: boolean) => request<Accounts>('/api/admin/sign-up', json('PUT', { paused })),
 }
 
