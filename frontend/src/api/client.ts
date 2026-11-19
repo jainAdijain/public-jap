@@ -13,6 +13,8 @@ export class ApiError extends Error {
 
 /** Fired when the API says the session has ended (PRD S5), so the app shows sign-in again. */
 export const SIGNED_OUT_EVENT = 'jap:signed-out'
+/** Fired when the API refuses because the notice has changed (S14): the app asks for the tick. */
+export const NEEDS_TERMS_EVENT = 'jap:needs-terms'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // The session cookie rides along (PRD S5); it is HttpOnly, so scripts never see it.
@@ -22,6 +24,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!resp.ok) {
     const err = body?.error
     if (resp.status === 401 && err?.code === 'signed_out') window.dispatchEvent(new Event(SIGNED_OUT_EVENT))
+    if (resp.status === 403 && err?.code === 'terms_not_accepted') window.dispatchEvent(new Event(NEEDS_TERMS_EVENT))
     throw new ApiError(resp.status, err?.code ?? 'error', err?.message ?? `API answered ${resp.status}`)
   }
   return body as T
@@ -72,6 +75,9 @@ export type Profile = ProfileFields & {
   auto_apply_min_skills: number
   spend: Spend
   plan: Plan
+  /** Consent (S14). Without submit_opt_in nothing is ever sent; auto_opt_in gates Automatic. */
+  submit_opt_in: boolean
+  auto_opt_in: boolean
 }
 
 export type Resume = {
@@ -157,6 +163,9 @@ export type Switches = {
   daily_cap?: number
   auto_apply_min_skills?: number
   spend_cap_usd?: number
+  /** Consent (S14): JAP may apply in my name, and may do it without asking. */
+  submit_opt_in?: boolean
+  auto_opt_in?: boolean
 }
 
 export type Salary = { min: number | null; max: number | null; currency: string | null; period: string | null }
@@ -356,13 +365,22 @@ export type Ops = {
   form_checks: FormCheck[]
 }
 
-export type User = { id: string; email: string; is_admin: boolean; two_step: boolean; recovery_codes_left: number }
+export type User = {
+  id: string
+  email: string
+  is_admin: boolean
+  two_step: boolean
+  recovery_codes_left: number
+  /** False until this account agrees to the notice as it stands (S14); the app asks first. */
+  terms_accepted: boolean
+}
 export type AuthState = {
   has_accounts: boolean
   sign_up_open: boolean // false while the admin has sign-up paused (S12)
   user: User | null
   two_step_pending: boolean
   turnstile_site_key: string // set: sign-up and forgot password show the "prove you're human" check
+  terms_version: string // the notice the sign-up tick agrees to (S14)
 }
 // verify_email: a new account has no session yet; the page says Check your email (S10).
 export type SignInResult = { signed_in: boolean; two_step: boolean; user: User | null; verify_email?: boolean }
@@ -370,8 +388,12 @@ export type TwoStepSetup = { secret: string; uri: string; qr_svg: string }
 
 export const auth = {
   state: () => request<AuthState>('/api/auth/state'),
-  signUp: (email: string, password: string, turnstile?: string | null) =>
-    request<SignInResult>('/api/auth/sign-up', json('POST', { email, password, turnstile: turnstile ?? null })),
+  signUp: (email: string, password: string, termsVersion: string, turnstile?: string | null) =>
+    request<SignInResult>(
+      '/api/auth/sign-up',
+      json('POST', { email, password, turnstile: turnstile ?? null, accept_terms: true, terms_version: termsVersion }),
+    ),
+  acceptTerms: (termsVersion: string) => request<User>('/api/auth/terms', json('POST', { terms_version: termsVersion })),
   verify: (token: string) => request<SignInResult>('/api/auth/verify', json('POST', { token })),
   resendVerification: (email: string) => request<{ queued: boolean }>('/api/auth/verify/resend', json('POST', { email })),
   signIn: (email: string, password: string) => request<SignInResult>('/api/auth/sign-in', json('POST', { email, password })),

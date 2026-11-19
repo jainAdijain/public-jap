@@ -11,11 +11,16 @@ import psycopg
 import pytest
 
 from auth import turnstile
+from auth.consent import TERMS_VERSION
 from config import get_settings
 from pipeline.notify import Mail
 from tests.conftest import OTHER_EMAIL, OTHER_PASSWORD, OWNER_EMAIL, OWNER_PASSWORD, _libpq
 
-NEW = {"email": "new@example.com", "password": "a long enough password"}
+PASSWORD = "a long enough password"
+# The terms and privacy tick every sign-up carries (S14). test_consent.py is the one that
+# leaves it out, or sends an older notice's version, on purpose.
+TICK: dict[str, Any] = {"accept_terms": True, "terms_version": TERMS_VERSION}
+NEW: dict[str, Any] = {"email": "new@example.com", "password": PASSWORD, **TICK}
 
 
 @pytest.fixture
@@ -86,7 +91,7 @@ async def test_sign_up_says_the_same_for_a_taken_address(
 ) -> None:  # fmt: skip
     await api.post("/api/auth/sign-out")
     taken = await anon.post(
-        "/api/auth/sign-up", json={"email": OWNER_EMAIL.upper(), "password": NEW["password"]}
+        "/api/auth/sign-up", json={"email": OWNER_EMAIL.upper(), "password": PASSWORD, **TICK}
     )
     fresh = await anon.post("/api/auth/sign-up", json=NEW)
     assert taken.status_code == fresh.status_code == 201 and taken.json() == fresh.json()
@@ -135,7 +140,7 @@ async def test_repeated_tries_are_refused(
     monkeypatch.setattr(get_settings(), "jap_auth_tries_per_hour_ip", 4)
     codes = []
     for i in range(3):  # one address, a new email each time: two more, then the address is out
-        body = {"email": f"someone{i}@example.com", "password": NEW["password"]}
+        body = {"email": f"someone{i}@example.com", "password": PASSWORD, **TICK}
         codes.append((await anon.post("/api/auth/sign-up", json=body)).status_code)
     assert codes == [429, 429, 429]  # the four tries above already used the address's hour
     assert sql.execute("SELECT count(*) FROM app_user").fetchone() == (2,)
@@ -289,7 +294,7 @@ async def test_first_sign_up_takes_over_data_from_before_any_account(
     )
     assert nobody.status_code in (401, 422)
     first = await anon.post(
-        "/api/auth/sign-up", json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD}
+        "/api/auth/sign-up", json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD, **TICK}
     )
     assert first.status_code == 201 and first.json()["user"]["is_admin"] is True
     assert first.json()["user"]["id"] == str(row[0])

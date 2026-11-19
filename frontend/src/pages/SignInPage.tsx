@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 
 import { ApiError, auth, type AuthState, type User } from '../api/client'
 import { errorText } from '../format'
+import PrivacyNotice from './PrivacyPage'
 
 // The screen shown before JAP opens (PRD S1 to S6, S10): create an account, sign in, the
 // two-step code, Forgot password and the reset link from the email. Anyone can create an
@@ -19,22 +20,39 @@ type Mode =
   | 'verify-sent'
   | 'verifying'
   | 'verify-failed'
+  | 'notice'
 
 const MIN_PASSWORD = 12
 
-function Card({ title, lead, children }: { title: string; lead?: string; children?: ReactNode }) {
+function Card({ title, lead, wide, children }: { title: string; lead?: string; wide?: boolean; children?: ReactNode }) {
   return (
     <main className="auth">
-      <div className="auth-card">
+      <div className={wide ? 'auth-card wide' : 'auth-card'}>
         <div className="logo auth-logo">
           <span className="logo-mark">JAP</span>
           <span className="logo-name">Job Application Pipeline</span>
         </div>
-        <h1>{title}</h1>
+        {title && <h1>{title}</h1>}
         {lead && <p className="muted">{lead}</p>}
         {children}
       </div>
     </main>
+  )
+}
+
+/** The terms and privacy tick (S14), on sign-up and on the agreement screen. */
+export function TermsTick({ checked, onChange, onRead }: { checked: boolean; onChange: (v: boolean) => void; onRead: () => void }) {
+  return (
+    <label className="tick">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span>
+        I agree to the{' '}
+        <button type="button" className="btn-link" onClick={onRead}>
+          terms and privacy notice
+        </button>
+        .
+      </span>
+    </label>
   )
 }
 
@@ -123,6 +141,7 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
     resetToken ? 'reset' : verifyToken ? 'verifying' : state.two_step_pending ? 'code' : first ? 'create' : 'sign-in',
   )
   const [human, setHuman] = useState<string | null>(null)
+  const [agreed, setAgreed] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const needsHuman = Boolean(state.turnstile_site_key)
   const [email, setEmail] = useState('')
@@ -188,6 +207,18 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
   const humanCheck = needsHuman && <Turnstile siteKey={state.turnstile_site_key} onToken={setHuman} />
   const humanProblem = () => (needsHuman && !human ? "Tick the check that you're human first" : null)
 
+  // The notice itself, read from the sign-up form and shown before anyone types anything.
+  if (mode === 'notice') {
+    return (
+      <Card title="" wide>
+        <PrivacyNotice />
+        <button type="button" className="btn-primary auth-submit" onClick={() => setMode('create')}>
+          Back to creating your account
+        </button>
+      </Card>
+    )
+  }
+
   if (mode === 'create') {
     return (
       <Card
@@ -197,9 +228,9 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
         <form
           className="auth-form"
           onSubmit={run(async () => {
-            const problem = newPasswordProblem() ?? humanProblem()
+            const problem = newPasswordProblem() ?? humanProblem() ?? (agreed ? null : 'Agree to the terms and the privacy notice first')
             if (problem) throw new Error(problem)
-            const res = await auth.signUp(email, password, human)
+            const res = await auth.signUp(email, password, state.terms_version, human)
             if (res.user) onSignedIn(res.user)
             else if (res.verify_email) go('verify-sent')
           })}
@@ -207,6 +238,7 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
           <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" autoFocus />
           <Field label="Password" type="password" value={password} onChange={setPassword} autoComplete="new-password" hint={`At least ${MIN_PASSWORD} characters.`} />
           <Field label="Password again" type="password" value={again} onChange={setAgain} autoComplete="new-password" />
+          <TermsTick checked={agreed} onChange={setAgreed} onRead={() => setMode('notice')} />
           {humanCheck}
           {failure}
           {submit('Create account')}

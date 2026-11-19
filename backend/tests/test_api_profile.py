@@ -14,6 +14,8 @@ async def test_empty_profile_on_first_read(api: httpx.AsyncClient) -> None:
     assert body["remote_any"] is False
     assert body["apply_mode"] == "review"
     assert body["spend"] == {"month_usd": 0.0, "cap_usd": 1.0, "reached": False}
+    # Agreed to nothing yet, so nothing can be sent (S14; test_consent.py has the rest).
+    assert body["submit_opt_in"] is False and body["auto_opt_in"] is False
 
 
 PROFILE = {
@@ -68,7 +70,9 @@ async def test_bad_email_is_rejected(api: httpx.AsyncClient) -> None:
 
 
 async def test_switches(api: httpx.AsyncClient) -> None:
-    body = (await api.patch("/api/profile", json={"apply_mode": "automatic"})).json()
+    # Automatic mode needs both opt-ins first (S14), which Settings asks for in one press.
+    automatic = {"submit_opt_in": True, "auto_opt_in": True, "apply_mode": "automatic"}
+    body = (await api.patch("/api/profile", json=automatic)).json()
     assert body["apply_mode"] == "automatic" and body["daily_run"] is False
     body = (await api.patch("/api/profile", json={"daily_run": True})).json()
     assert body["apply_mode"] == "automatic" and body["daily_run"] is True

@@ -137,6 +137,36 @@ screens) runs as the service (`backend/database/tenant.py`, migration `0013_rls`
   a request carrying proxy headers (`X-Forwarded-For`, `Forwarded`, `Cf-Connecting-Ip`), and
   a write that comes from another site's page is refused.
 
+## What you agree to
+
+JAP holds a person's name, address, phone, resume and the answers they give to employers,
+sends job and resume text to a model with the contact details taken out, and presses Submit
+on a form in their name. Each of those is said plainly and agreed to before it happens
+(PRD S14). Three separate agreements, because they are three different things:
+
+| What | Asked where | Without it |
+| --- | --- | --- |
+| The terms and the privacy notice | The tick on sign-up | No `/api` route but health and `/api/auth/*` answers: the app shows the agreement screen and nothing else |
+| JAP may apply in my name | The first time you press Apply | Nothing is prepared and nothing is sent; Apply says so and a run picks nothing |
+| JAP may do that without asking first | Turning on "JAP applies for me" in Settings | Automatic mode cannot be turned on |
+
+- **The notice** is readable before you create an account (from the tick), from the
+  agreement screen and from Settings > Account at any time. It says what JAP stores, what it
+  is used for, what goes to an AI model, what applying in your name means, and who can see
+  it. The wording is a draft and says so at the top.
+- **The version is kept, not just the date.** `TERMS_VERSION` in `backend/auth/consent.py`
+  is the date the notice last changed, and an account is agreed only while its stored
+  version matches. Raising it asks everyone again, so it changes when what the notice *says*
+  changes, not when its wording is tidied. Accounts that existed before the notice are
+  asked once on their next visit: the migration backfills nothing, because a consent written
+  by a migration is one nobody gave.
+- **Taking it back.** Settings > Applying shows what you have agreed to, with Take that
+  back. Taking back "JAP may apply for me" takes "without asking" with it and puts the
+  account back in Review mode: the narrower permission cannot outlive the wider one. Nothing
+  further is sent after that, including an application already approved and waiting — Submit
+  reads the opt-in again at the last moment, and fails the attempt rather than sending it.
+  Applications already sent cannot be unsent.
+
 ## Personal data and models
 
 No name, email, phone, address or profile link is sent to any model. `backend/llm/redact.py`
@@ -269,7 +299,9 @@ or the AI limit was reached, and red with **Try again** when the search failed.
 ## Applying (Review mode)
 
 Open a job and press **Apply** (or tick several rows and press Apply), or tick **Also apply to
-the new jobs that fit** under the arrow beside Find new jobs to prepare every New job (up to your daily cap, 20 by default). JAP freezes the job description,
+the new jobs that fit** under the arrow beside Find new jobs to prepare every New job (up to your daily cap, 20 by default). The first
+Apply asks you to agree to JAP applying in your name, once ([What you agree
+to](#what-you-agree-to)). JAP freezes the job description,
 opens the posting's public form in a headless Chromium (Playwright), lists every field and
 whether it is required, and fills it:
 
@@ -303,7 +335,9 @@ reposts it (a repost joins the same listing). **Skip** cancels a prepared or wai
 
 ## Automatic mode
 
-The **Review | Automatic** switch on the Runs card sets the Apply mode (A4). In Automatic mode
+The **Review | Automatic** switch on the Runs card sets the Apply mode (A4). Turning it on
+asks for its own agreement, because sending without showing you first is a different thing
+to agree to ([What you agree to](#what-you-agree-to)). In Automatic mode
 a job is submitted without asking you once its form is filled, unless something about it is
 unclear (A3):
 

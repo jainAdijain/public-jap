@@ -9,11 +9,15 @@ import psycopg
 import pytest
 
 from auth import passwords, totp
+from auth.consent import TERMS_VERSION
+from config import get_settings
 from pipeline.notify import Mail
 from tests.conftest import OWNER_EMAIL, OWNER_PASSWORD
 
 NEW_PASSWORD = "a different long one"
 RFC_SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"  # "12345678901234567890"
+# The terms and privacy tick every sign-up carries (S14); test_consent.py leaves it out.
+TICK: dict[str, Any] = {"accept_terms": True, "terms_version": TERMS_VERSION}
 
 
 # --- building blocks -------------------------------------------------------------------------
@@ -105,13 +109,15 @@ async def test_first_account_is_the_admin_and_needs_no_email_check(
     state = (await anon.get("/api/auth/state")).json()
     assert state == {
         "has_accounts": False, "sign_up_open": True, "user": None, "two_step_pending": False,
-        "turnstile_site_key": "",
+        "turnstile_site_key": "", "terms_version": TERMS_VERSION,
     }  # fmt: skip
-    short = await anon.post("/api/auth/sign-up", json={"email": OWNER_EMAIL, "password": "short"})
+    short = await anon.post(
+        "/api/auth/sign-up", json={"email": OWNER_EMAIL, "password": "short", **TICK}
+    )
     assert short.status_code == 422 and short.json()["error"]["code"] == "weak_password"
 
     resp = await anon.post(
-        "/api/auth/sign-up", json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD}
+        "/api/auth/sign-up", json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD, **TICK}
     )
     assert resp.status_code == 201
     assert resp.json()["user"]["email"] == OWNER_EMAIL
@@ -121,7 +127,8 @@ async def test_first_account_is_the_admin_and_needs_no_email_check(
 
     await anon.post("/api/auth/sign-out")
     again = await anon.post(
-        "/api/auth/sign-up", json={"email": "someone@else.com", "password": OWNER_PASSWORD}
+        "/api/auth/sign-up",
+        json={"email": "someone@else.com", "password": OWNER_PASSWORD, **TICK},
     )
     assert again.status_code == 201
     assert again.json() == {
@@ -136,15 +143,13 @@ async def test_first_account_is_the_admin_and_needs_no_email_check(
 async def test_admin_email_setting_limits_the_first_account(
     anon: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from config import get_settings
-
     monkeypatch.setattr(get_settings(), "jap_admin_email", "me@example.com")
     wrong = await anon.post(
-        "/api/auth/sign-up", json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD}
+        "/api/auth/sign-up", json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD, **TICK}
     )
     assert wrong.status_code == 403
     ok = await anon.post(
-        "/api/auth/sign-up", json={"email": "Me@Example.com", "password": OWNER_PASSWORD}
+        "/api/auth/sign-up", json={"email": "Me@Example.com", "password": OWNER_PASSWORD, **TICK}
     )
     assert ok.status_code == 201
 
@@ -187,8 +192,6 @@ async def test_cookie_is_httponly_lax_and_host_only(api: httpx.AsyncClient) -> N
 async def test_secure_cookie_on_https(
     api: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from config import get_settings
-
     client = await _signed_out(api)
     monkeypatch.setattr(get_settings(), "jap_cookie_secure", True)
     cookie = (await _sign_in(client)).headers["set-cookie"].lower()
@@ -258,7 +261,9 @@ async def test_password_reset_by_email(
     assert unknown.status_code == known.status_code == 202
     assert unknown.json() == known.json()
     assert len(outbox) == 1 and outbox[0].to == OWNER_EMAIL
-    assert outbox[0].body.count("http://localhost:5173/?reset=") == 1
+    # The link points at this stack's own UI, whichever port that is (a worktree is not 5173).
+    ui = get_settings().jap_ui_url.rstrip("/")
+    assert outbox[0].body.count(f"{ui}/?reset=") == 1
     token = _token(outbox[0])
     stored = sql.execute("SELECT count(*) FROM password_reset WHERE token_hash = %s", (token,))
     assert stored.fetchone() == (0,)  # only a hash of the link is kept
@@ -331,6 +336,7 @@ async def _turn_on_two_step(api: httpx.AsyncClient) -> tuple[str, list[str]]:
         "is_admin": True,
         "two_step": True,
         "recovery_codes_left": 8,
+        "terms_accepted": True,
     }
     return secret, codes["recovery_codes"]
 
@@ -420,7 +426,7 @@ async def test_requests_from_other_sites_are_refused(api: httpx.AsyncClient) -> 
     other = await api.post("/api/auth/sign-out", headers={"Origin": "https://evil.example"})
     assert other.status_code == 403 and other.json()["error"]["code"] == "bad_origin"
     assert (await api.get("/api/profile")).status_code == 200
-    ours = await api.post("/api/auth/sign-out", headers={"Origin": "http://localhost:5173"})
+    ours = await api.post("/api/auth/sign-out", headers={"Origin": get_settings().cors_origins[0]})
     assert ours.status_code == 204
 
 
@@ -434,8 +440,6 @@ async def test_a_turned_off_account_cannot_sign_in(
 
 
 def test_sessions_last_seven_days_idle() -> None:
-    from config import get_settings
-
     settings = get_settings()
     assert timedelta(days=settings.jap_session_idle_days) == timedelta(days=7)
     assert settings.jap_session_max_days == 30

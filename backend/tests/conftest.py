@@ -108,15 +108,36 @@ def fast_hashing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(auth.passwords, "N", 2**10)
 
 
-def add_account(db: str, email: str, password: str, *, admin: bool = False) -> uuid.UUID:
-    """A confirmed account with an empty profile, written straight to the database."""
+@pytest.fixture
+def sending_on(db: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sending turned on for one test (H4). Only prod has JAP_SUBMIT_ENABLED on, and a
+    worktree forces it off, so a test that drives Submit all the way through says so for
+    itself instead of reading it off the stack it happens to run against. The browser is a
+    stub in every one of them (flow.submit_form), so no job site is ever reached; the off
+    case is test_apply.py::test_sending_off_never_opens_the_form.
+
+    It takes db because that fixture clears the settings cache, which would drop this."""
+    monkeypatch.setattr(get_settings(), "jap_submit_enabled", True)
+
+
+def add_account(
+    db: str, email: str, password: str, *, admin: bool = False, consented: bool = True
+) -> uuid.UUID:
+    """A confirmed account with an empty profile, written straight to the database.
+
+    consented is the terms agreed (PRD S14), which is what an established account looks
+    like; test_consent.py passes False for one that has agreed to nothing. The two apply
+    opt-ins live on the profile, which is made lazily, so a test that applies asks for
+    them with tests.mine.opt_in()."""
+    from auth.consent import TERMS_VERSION
     from auth.passwords import _hash_sync
 
     with psycopg.connect(_libpq(db), autocommit=True) as conn:
         row = conn.execute(
-            "INSERT INTO app_user (email, password_hash, is_admin, email_verified_at)"
-            " VALUES (%s, %s, %s, now()) RETURNING id",
-            (email, _hash_sync(password), admin),
+            "INSERT INTO app_user (email, password_hash, is_admin, email_verified_at,"
+            " terms_accepted_at, terms_version)"
+            " VALUES (%s, %s, %s, now(), CASE WHEN %s THEN now() END, %s) RETURNING id",
+            (email, _hash_sync(password), admin, consented, TERMS_VERSION if consented else None),
         ).fetchone()
         assert row is not None
         return uuid.UUID(str(row[0]))

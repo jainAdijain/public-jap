@@ -121,6 +121,9 @@ class ProfileOut(ProfileIn):
     auto_apply_min_skills: int  # F6: Automatic applies at or above this % of required skills
     spend: Spend
     plan: Plan
+    # Consent (S14): JAP may apply in my name, and may do it without asking.
+    submit_opt_in: bool = False
+    auto_opt_in: bool = False
 
 
 class ProfileSaved(ProfileOut):
@@ -140,3 +143,7 @@ class ProfileSwitches(BaseModel):
     daily_cap: int | None = Field(default=None, ge=0, le=100)  # A1: 20 unless lowered
     spend_cap_usd: float | None = Field(default=None, ge=0, le=100)  # $2 unless changed
     auto_apply_min_skills: int | None = Field(default=None, ge=0, le=100)  # F6: 60, 0 = off
+    # Consent (S14), each given or taken back on its own. Taking back the first takes back
+    # the second with it, and turns Automatic mode off.
+    submit_opt_in: bool | None = None
+    auto_opt_in: bool | None = None

@@ -1,10 +1,13 @@
 """GET, PUT and PATCH /api/profile (U7 to U10): the signed-in user's own profile (S7)."""
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.errors import ApiError
+from auth import consent
 from database import tenant
 from database.models import Profile
 from database.session import Session
@@ -28,6 +31,21 @@ router = APIRouter(prefix="/profile", tags=["profile"])
 FIELDS = list(ProfileIn.model_fields)
 
 
+def _consent(profile: Profile, body: ProfileSwitches) -> None:
+    """Record the two opt-ins (S14). Taking back "JAP may apply for me" takes the Automatic
+    one with it and puts the account back in Review mode: the narrower permission cannot
+    outlive the wider one."""
+    now = datetime.now(UTC)
+    if body.submit_opt_in is not None:
+        profile.submit_opt_in_at = now if body.submit_opt_in else None
+    if body.auto_opt_in is not None:
+        profile.auto_opt_in_at = now if body.auto_opt_in else None
+    if profile.submit_opt_in_at is None:
+        profile.auto_opt_in_at = None
+    if profile.auto_opt_in_at is None and profile.apply_mode == "automatic":
+        profile.apply_mode = "review"
+
+
 def plan_out(limits: Limits) -> Plan:
     return Plan(
         name=limits.plan,
@@ -49,6 +67,8 @@ async def to_out(session: AsyncSession, profile: Profile) -> ProfileOut:
         auto_apply_min_skills=profile.auto_apply_min_skills,
         spend=await month_spend(session),
         plan=plan_out(limits),
+        submit_opt_in=profile.submit_opt_in_at is not None,
+        auto_opt_in=profile.auto_opt_in_at is not None,
     )
     return ProfileOut.model_validate(data)
 
@@ -105,7 +125,10 @@ async def preview(body: ProfileIn, session: Session) -> MatchPreview:
 @router.patch("", response_model=ProfileOut)
 async def flip_switches(body: ProfileSwitches, session: Session) -> ProfileOut:
     profile = await load_profile(session)
+    _consent(profile, body)
     if body.apply_mode is not None:
+        if body.apply_mode == "automatic" and not consent.may_apply_automatically(profile):
+            raise ApiError(409, "consent_needed", consent.NEEDS_AUTO)
         profile.apply_mode = body.apply_mode
     if body.daily_run is not None:
         profile.daily_run = body.daily_run

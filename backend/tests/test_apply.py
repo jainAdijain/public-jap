@@ -40,10 +40,13 @@ RESUME_TEXT = "Asha Rao\nBackend engineer. Python, FastAPI, Postgres. Built a pa
 
 
 def _profile(sql: psycopg.Connection[Any], cap: int = 20) -> None:
+    """An established account's profile: the contact details, and the two opt-ins that let
+    JAP apply at all (S14; tests/test_consent.py is where their absence is checked)."""
     sql.execute(
-        "INSERT INTO profile (full_name, email, phone, links, target_roles, locations, daily_cap)"
+        "INSERT INTO profile (full_name, email, phone, links, target_roles, locations, daily_cap,"
+        " submit_opt_in_at, auto_opt_in_at)"
         " VALUES ('Asha Rao', 'asha.rao@example.com', '+91 98765 43210', %s,"
-        " '{Backend Engineer}', '{Bangalore}', %s)",
+        " '{Backend Engineer}', '{Bangalore}', %s, now(), now())",
         (json.dumps([{"label": "LinkedIn", "url": "https://linkedin.com/in/asharao"}]), cap),
     )
 
@@ -348,7 +351,7 @@ async def test_captcha_and_missing_files_block(
 async def test_approve_submits_once_and_freezes(
     setup: dict[str, Any], sql: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch,
     api: httpx.AsyncClient, events: list[tuple[str, dict[str, Any]]],
-    me: dict[str, str],
+    me: dict[str, str], sending_on: None,
 ) -> None:  # fmt: skip
     _fake_form(monkeypatch, FORM)
     app_id = await _prepare(setup["listing"])
@@ -473,7 +476,7 @@ async def test_sending_off_never_opens_the_form(
 
 async def test_unconfirmed_submit_fails_and_unpressed_submit_retries(
     setup: dict[str, Any], sql: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch,
-    api: httpx.AsyncClient,
+    api: httpx.AsyncClient, sending_on: None,
 ) -> None:  # fmt: skip
     _fake_form(monkeypatch, FORM)
     app_id = await _prepare(setup["listing"])

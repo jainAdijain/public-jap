@@ -1,7 +1,8 @@
-"""Sign-in, sign-up, password reset and two-step sign-in (PRD S1 to S9, U21).
+"""Sign-in, sign-up, password reset and two-step sign-in (PRD S1 to S9, S14, U21).
 
 These routes are the only ones besides /api/health that answer without a session. The rest of
-/api carries the CurrentUser dependency (main.py).
+/api carries the AgreedUser dependency (main.py), which also wants the terms ticked; these do
+not, because /auth/terms is how an older account gives that tick.
 
 Sign-up is open (PRD 1.18 step 2: S1, S10). The first account is the admin and is signed in
 at once. Every account after it gets an emailed link and has no session until the link is
@@ -20,7 +21,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import ApiError
-from auth import accounts, limits, passwords, sessions, totp, turnstile
+from auth import accounts, consent, limits, passwords, sessions, totp, turnstile
 from auth.deps import CurrentSession, CurrentUser
 from config import get_settings
 from database.models import AppUser, PasswordReset
@@ -28,6 +29,7 @@ from database.session import Session
 from pipeline.notify import EmailNotSent, Mail
 from pipeline.notify import send as send_mail
 from schemas.auth import (
+    AcceptTerms,
     AuthState,
     Code,
     Credentials,
@@ -66,6 +68,7 @@ def user_out(user: AppUser) -> UserOut:
         is_admin=user.is_admin,
         two_step=user.totp_secret is not None,
         recovery_codes_left=len(user.recovery_codes or []),
+        terms_accepted=consent.accepted_terms(user),
     )
 
 
@@ -93,6 +96,13 @@ def _new_password(password: str) -> None:
         raise ApiError(422, "weak_password", problem)
 
 
+def _ticked(accepted: bool, version: str) -> None:
+    """The terms and privacy tick (S14). A tick against an older notice does not count:
+    the page is told the current version and sends back the one it displayed."""
+    if not accepted or version != consent.TERMS_VERSION:
+        raise ApiError(422, "terms_not_accepted", consent.NEEDS_TERMS)
+
+
 @router.get("/state", response_model=AuthState)
 async def state(request: Request, session: Session) -> AuthState:
     has_accounts = await accounts.any_account(session)
@@ -105,6 +115,7 @@ async def state(request: Request, session: Session) -> AuthState:
         user=user_out(user) if user else None,
         two_step_pending=user is None and pending is not None,
         turnstile_site_key=get_settings().turnstile_site_key,
+        terms_version=consent.TERMS_VERSION,
     )
 
 
@@ -133,6 +144,7 @@ async def _first_account(session: AsyncSession, body: SignUp) -> AppUser:
     user.is_admin = True
     user.email_verified_at = sessions.now()
     user.password_changed_at = sessions.now()
+    consent.accept_terms(user, sessions.now())
     await session.flush()
     return user
 
@@ -146,6 +158,7 @@ async def sign_up(
     account, one still waiting for its link (which is sent again), or one that exists."""
     await limits.check(session, request, "sign-up", body.email)
     await turnstile.check(body.turnstile, limits.client_ip(request))
+    _ticked(body.accept_terms, body.terms_version)
     await session.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": SIGN_UP_LOCK})
     if not await accounts.any_account(session):
         user = await _first_account(session, body)
@@ -161,11 +174,15 @@ async def sign_up(
     mail: Mail | None = None
     if existing is None:
         user = AppUser(email=body.email, password_hash=await passwords.hash_password(body.password))
+        consent.accept_terms(user, sessions.now())
         session.add(user)
         await session.flush()
         mail = await accounts.verification_mail(session, user, force=True)
         await accounts.start_workspace(session, user)
     elif existing.email_verified_at is None and existing.disabled_at is None:
+        # Still waiting for its link: the tick just given counts for it too (S14), so the
+        # account is not asked a second time the moment the link is opened.
+        consent.accept_terms(existing, sessions.now())
         mail = await accounts.verification_mail(session, existing)
     await session.commit()
     await _send(mail, "Verification")
@@ -295,6 +312,16 @@ async def sign_out_everywhere(user: CurrentUser, response: Response, session: Se
 
 @router.get("/me", response_model=UserOut)
 async def me(user: CurrentUser) -> UserOut:
+    return user_out(user)
+
+
+@router.post("/terms", response_model=UserOut)
+async def accept_terms(body: AcceptTerms, user: CurrentUser, session: Session) -> UserOut:
+    """Agree to the terms and the privacy notice (S14), from an account made before this
+    notice. New accounts tick the same box at sign-up."""
+    _ticked(True, body.terms_version)
+    consent.accept_terms(user, sessions.now())
+    await session.commit()
     return user_out(user)
 
 

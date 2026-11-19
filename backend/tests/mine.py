@@ -41,6 +41,17 @@ def listed(sql: psycopg.Connection[Any], where: str = "true", matched: str = "{r
     )
 
 
+def opt_in(sql: psycopg.Connection[Any], *, automatic: bool = True) -> None:
+    """The owner has agreed to JAP applying in their name, and to its doing so without
+    asking (PRD S14). Without this nothing is prepared or sent, so every test that applies
+    says so. test_consent.py is the one that leaves it out on purpose."""
+    auto = "now()" if automatic else "NULL"
+    sql.execute(
+        f"INSERT INTO profile (submit_opt_in_at, auto_opt_in_at) VALUES (now(), {auto})"
+        f" ON CONFLICT (user_id) DO UPDATE SET submit_opt_in_at = now(), auto_opt_in_at = {auto}"
+    )
+
+
 def status(
     sql: psycopg.Connection[Any], value: str, where: str = "true", params: tuple[Any, ...] = ()
 ) -> None:

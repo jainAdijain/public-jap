@@ -397,6 +397,7 @@ async def test_my_unfollow_hide_and_apply_leave_your_list_alone(
     from tests.test_apply import _resume
 
     _resume(sql, tmp_path)
+    mine.opt_in(sql, automatic=False)  # JAP may apply in my name (S14)
     async with get_sessionmaker()() as session:
         app_id = await flow.create_attempt(session, ids["Backend Engineer"], None)
     backend = f"/api/listings/{ids['Backend Engineer']}"

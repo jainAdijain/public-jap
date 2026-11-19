@@ -4,6 +4,7 @@ import { auth, type TwoStepSetup } from '../api/client'
 import { useApp } from '../appContext'
 import { useAuth } from '../authContext'
 import { errorText } from '../format'
+import PrivacyNotice from './PrivacyPage'
 
 // Settings > Account (PRD U21): password, two-step sign-in with recovery codes, sign out.
 
@@ -216,6 +217,17 @@ export default function AccountSection() {
             </div>
           </form>
         )}
+
+        <hr className="rule" />
+
+        {/* What this account agreed to, and the notice itself, readable at any time (S14). */}
+        <details className="notice-read">
+          <summary>Terms and privacy notice</summary>
+          <p className="help">{user.terms_accepted ? 'You have agreed to this notice as it stands.' : 'You have not agreed to this notice yet.'}</p>
+          <div className="notice-scroll">
+            <PrivacyNotice />
+          </div>
+        </details>
 
         <hr className="rule" />
 
