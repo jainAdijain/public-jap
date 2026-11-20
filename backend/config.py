@@ -61,6 +61,19 @@ class Settings(BaseSettings):
 
     inngest_base_url: str = "http://inngest:8288"
 
+    # How many searches may run at once across the whole service (T6). Each user is held to
+    # one of their own by run-pipeline's keyed concurrency, so this is the ceiling on how
+    # many different people search at the same time. Three is a starting point, not a
+    # measurement: what a run shares is Postgres, Ollama's embedding and the OpenRouter
+    # budget, and which of those gives first is to be watched before raising it.
+    jap_max_parallel_runs: int = 3
+
+    # How long a board's jobs count as fresh (T6). A board is shared, so when two people
+    # who follow it search minutes apart the second search reuses the first one's fetch
+    # instead of asking the ATS again. It never skips reading a job description that
+    # somebody now wants: only the HTTP fetch is skipped (functions/fetch_board.py).
+    jap_board_fresh_minutes: int = 10
+
     jap_tz: str = "Asia/Kolkata"
 
     # Resumes, screenshots, cover letters and backups (data/ on the Mac).

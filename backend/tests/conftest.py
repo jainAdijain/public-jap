@@ -49,6 +49,24 @@ def _libpq(url: str) -> str:
     return url.replace("postgresql+psycopg://", "postgresql://")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def no_fresh_window() -> Iterator[None]:
+    """The board freshness window off for the suite (T6). Tests fetch one board over and
+    over on purpose — a second fetch that closes what left, a changed description — and
+    the window would make every one of those a no-op. Set in the environment, not on the
+    settings object, because the db fixture clears the settings cache for each test.
+    tests/test_ingest.py turns it back on for the tests that are about it."""
+    before = os.environ.get("JAP_BOARD_FRESH_MINUTES")
+    os.environ["JAP_BOARD_FRESH_MINUTES"] = "0"
+    get_settings.cache_clear()
+    yield
+    if before is None:
+        os.environ.pop("JAP_BOARD_FRESH_MINUTES", None)
+    else:
+        os.environ["JAP_BOARD_FRESH_MINUTES"] = before
+    get_settings.cache_clear()
+
+
 @pytest.fixture(scope="session")
 def database_url() -> Iterator[str]:
     test_url = _test_url()

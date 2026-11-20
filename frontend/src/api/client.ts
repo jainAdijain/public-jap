@@ -123,6 +123,8 @@ export type RunCounts = {
   possible_duplicates?: number
   boards?: number
   boards_failed?: number
+  /** Companies whose jobs another user's search had just fetched, so this one reused them (T6). */
+  boards_fresh?: number
   board_errors?: string[]
   fetched?: number
   new?: number

@@ -95,6 +95,96 @@ async def test_missing_postings_are_closed_not_deleted(
     assert sql.execute("SELECT count(*) FROM posting WHERE state = 'open'").fetchone() == (2,)
 
 
+# The board freshness window (T6) -------------------------------------------------------
+
+
+@pytest.fixture
+def fresh_window(db: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The window on for one test. conftest.py turns it off for the rest of the suite.
+    Takes db, which clears the settings cache, so this patch is the last word."""
+    from config import get_settings
+
+    monkeypatch.setattr(get_settings(), "jap_board_fresh_minutes", 10)
+
+
+async def _fetch(board_id: str) -> dict[str, Any]:
+    """fetch_step as fetch-board really runs it: as the service, because a board is shared
+    and who wants a title is read across every follower (pipeline/enrich.py: wanted_on)."""
+    with tenant.as_system():
+        return await fetch_step(board_id)
+
+
+async def test_a_board_someone_just_fetched_is_not_fetched_again(
+    fresh_window: None, sql: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A board is shared, so two people searching minutes apart share one fetch (T6).
+    The second search asks the ATS nothing and closes nothing."""
+    calls: list[str] = []
+    routes: b.Routes = {f"{GH}/discord/jobs": b.greenhouse(b.GREENHOUSE_JOB, SECOND)}
+    b.fake_boards(monkeypatch, routes, seen=calls)
+    board_id = await _board()
+
+    first = await _fetch(board_id)
+    assert first["new"] == 2 and not first.get("fresh") and len(calls) == 1
+
+    again = await _fetch(board_id)
+    assert again["fresh"] is True
+    assert len(calls) == 1  # the job board was not asked a second time
+    assert (again["fetched"], again["new"], again["seen"]) == (0, 0, [])
+    assert sql.execute("SELECT count(*) FROM posting WHERE state = 'open'").fetchone() == (2,)
+
+    # Outside the window it is fetched again, as before.
+    sql.execute("UPDATE watched_board SET last_checked_at = now() - interval '11 minutes'")
+    later = await _fetch(board_id)
+    assert not later.get("fresh") and later["unchanged"] == 2 and len(calls) == 2
+
+
+async def test_a_fresh_skip_still_reads_what_somebody_now_wants(
+    fresh_window: None, sql: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch,
+    other_id: uuid.UUID,
+) -> None:  # fmt: skip
+    """The subtle half. Who wants a title is worked out at fetch time, so a user who
+    follows the company after that fetch was not in the set. Skipping the HTTP call is
+    right; skipping their reading would leave their jobs never read."""
+    routes: b.Routes = {f"{GH}/discord/jobs": b.greenhouse(b.GREENHOUSE_JOB, SECOND)}
+    b.fake_boards(monkeypatch, routes)
+    board_id = await _board()
+    # The owner wants only one of the two titles, so only that one is read.
+    sql.execute("INSERT INTO profile (target_roles) VALUES ('{Policy Analyst}')")
+    first = await _fetch(board_id)
+    assert len(first["to_enrich"]) == 1
+    sql.execute("UPDATE posting SET extracted_hash = description_hash WHERE title_raw = %s",
+                ("Policy Analyst",))  # fmt: skip
+
+    # Somebody else follows the same company, wanting the other title. Their search is
+    # inside the window, so nothing is fetched — but their job is still queued to read.
+    sql.execute(
+        "INSERT INTO profile (user_id, target_roles) VALUES (%s, '{Commercial Policy Lead}')",
+        (other_id,),
+    )
+    sql.execute(
+        "INSERT INTO board_follow (user_id, board_id) VALUES (%s, %s)", (other_id, board_id)
+    )
+    theirs = await _fetch(board_id)
+    assert theirs["fresh"] is True and theirs["fetched"] == 0
+    titles = sql.execute(
+        "SELECT title_raw FROM posting WHERE id = ANY(%s::uuid[])", (theirs["to_enrich"],)
+    ).fetchall()
+    assert titles == [("Commercial Policy Lead",)]
+
+
+async def test_a_first_fetch_and_a_failed_one_are_never_fresh(
+    fresh_window: None, sql: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Following a company and searching at once must not show an empty list, and a board
+    whose last fetch failed is tried again rather than trusted."""
+    b.fake_boards(monkeypatch, {f"{GH}/discord/jobs": b.greenhouse(b.GREENHOUSE_JOB)})
+    board_id = await _board()
+    assert not (await _fetch(board_id)).get("fresh")  # never checked before
+    sql.execute("UPDATE watched_board SET last_ok = false")
+    assert not (await _fetch(board_id)).get("fresh")  # the last one failed
+
+
 async def test_board_not_found_is_marked_and_does_not_raise(
     db: str, sql: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:

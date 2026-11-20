@@ -167,8 +167,9 @@ async def test_daily_step_fires_once_when_on(
     assert last is not None and last[0] <= datetime.now(UTC)
 
 
-async def test_a_queued_run_waits_its_turn(db: str, sql: psycopg.Connection[Any]) -> None:
-    """Inngest lets a queued run's first step start beside a running one; it must wait."""
+async def test_a_queued_run_waits_for_that_users_own(db: str, sql: psycopg.Connection[Any]) -> None:
+    """Inngest lets a queued run's first step start beside a running one; one of my own
+    must still wait (T4). Both these runs are the owner's."""
     await _board()
     sql.execute(
         "INSERT INTO run (trigger, mode, status, started_at) "
@@ -185,3 +186,26 @@ async def test_a_queued_run_waits_its_turn(db: str, sql: psycopg.Connection[Any]
     async with get_sessionmaker()() as session:
         assert await start_run(session, row[0]) is not None
     assert sql.execute("SELECT status FROM run WHERE id = %s", (row[0],)).fetchone() == ("running",)
+
+
+async def test_another_users_search_does_not_hold_mine_up(
+    db: str, sql: psycopg.Connection[Any], other_id: uuid.UUID
+) -> None:
+    """Searches go side by side, one per user (T6). Until v0.20.0 one queue served the whole
+    service and the second person waited for the first, however long they took."""
+    mine_board = await _board()
+    sql.execute(
+        "INSERT INTO run (user_id, trigger, mode, status, started_at)"
+        " VALUES (%s, 'manual', 'find_only', 'running', now())",
+        (other_id,),
+    )
+    sql.execute("INSERT INTO run (trigger, mode) VALUES ('manual', 'find_only')")
+    row = sql.execute("SELECT id FROM run WHERE user_id <> %s", (other_id,)).fetchone()
+    assert row is not None
+    with tenant.as_system():
+        async with get_sessionmaker()() as session:
+            boards = await start_run(session, row[0])
+    assert [x["board_id"] for x in boards or []] == [mine_board]  # theirs did not hold it
+    assert sql.execute(
+        "SELECT status FROM run WHERE id = %s", (row[0],)
+    ).fetchone() == ("running",)  # fmt: skip

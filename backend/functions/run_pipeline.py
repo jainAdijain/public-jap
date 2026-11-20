@@ -139,12 +139,15 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
     counts: dict[str, Any] = {k: 0 for k in COUNTED}
     counts["boards"] = len(results)
     counts["boards_failed"] = 0
+    counts["boards_fresh"] = 0  # fetched for somebody else moments ago, so reused (T6)
     errors: list[str] = []
     for r in results:
         if not r.get("ok"):
             counts["boards_failed"] += 1
             errors.append(str(r.get("error") or "fetch failed"))
             continue
+        if r.get("fresh"):
+            counts["boards_fresh"] += 1
         for k in COUNTED:
             counts[k] += int(r.get(k) or 0)
     if errors:
@@ -155,7 +158,14 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
 @inngest_client.create_function(
     fn_id="run-pipeline",
     trigger=inngest.TriggerEvent(event="run/requested"),
-    concurrency=[inngest.Concurrency(limit=1)],
+    # Searches go side by side, one per user (T6). The keyed entry keeps each person to a
+    # single search of their own, so a second one of theirs waits; the plain entry is the
+    # ceiling across everybody, so the service is not swamped. Before this there was one
+    # entry with a limit of 1 and everyone queued behind whoever searched first.
+    concurrency=[
+        inngest.Concurrency(key="event.data.user_id", limit=1),
+        inngest.Concurrency(limit=get_settings().jap_max_parallel_runs),
+    ],
     retries=2,
     on_failure=_failed,
 )

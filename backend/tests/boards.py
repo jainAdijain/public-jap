@@ -94,9 +94,11 @@ def job(base: dict[str, Any], **changes: Any) -> dict[str, Any]:
 Routes = dict[str, Any]  # URL prefix -> JSON body, or an int status code
 
 
-def transport(routes: Routes) -> httpx.MockTransport:
+def transport(routes: Routes, seen: list[str] | None = None) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
+        if seen is not None:  # for a test that counts the fetches (the freshness window, T6)
+            seen.append(url)
         for prefix, body in sorted(routes.items(), key=lambda kv: -len(kv[0])):
             if url.startswith(prefix):
                 if isinstance(body, int):
@@ -107,11 +109,14 @@ def transport(routes: Routes) -> httpx.MockTransport:
     return httpx.MockTransport(handler)
 
 
-def fake_boards(monkeypatch: pytest.MonkeyPatch, routes: Routes) -> None:
-    """Point every adapter's HTTP client at routes (change routes in place to change them)."""
+def fake_boards(
+    monkeypatch: pytest.MonkeyPatch, routes: Routes, seen: list[str] | None = None
+) -> None:
+    """Point every adapter's HTTP client at routes (change routes in place to change them).
+    seen, when given, collects every URL asked for."""
 
     def make() -> httpx.AsyncClient:
-        return httpx.AsyncClient(transport=transport(routes))
+        return httpx.AsyncClient(transport=transport(routes, seen))
 
     import sources.base
 
