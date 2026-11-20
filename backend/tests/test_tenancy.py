@@ -55,8 +55,12 @@ def test_every_private_table_has_a_user_and_a_policy(sql: psycopg.Connection[Any
             " WHERE table_schema = 'public' AND column_name = 'user_id'"
         ).fetchall()
     }
+    # Not a workspace: these carry a user_id but are read while deciding *who* somebody is,
+    # before there is a tenant to test against. user_identity is one of them — the Google
+    # callback finds it by (provider, subject) with nobody signed in yet, so a policy
+    # keyed on app.user_id would hide the row at the one moment it is needed (S16).
     not_workspace = {"auth_session", "password_reset", "email_verification", "log_event",
-                     "alert_state"}  # fmt: skip
+                     "alert_state", "user_identity"}  # fmt: skip
     assert with_user - not_workspace == set(tenant.PRIVATE_TABLES)
     secured = {
         r[0]
@@ -207,6 +211,7 @@ async def test_another_users_ids_answer_not_found_on_every_route(
         ("POST", f"/api/admin/accounts/{NOBODY}/off", None),
         ("POST", f"/api/admin/accounts/{NOBODY}/on", None),
         ("PUT", f"/api/admin/accounts/{NOBODY}/limits", {"ai_usd": 100}),
+        ("DELETE", f"/api/admin/accounts/{NOBODY}", None),
     ]
     from main import app
 
@@ -397,6 +402,7 @@ async def test_my_unfollow_hide_and_apply_leave_your_list_alone(
     from tests.test_apply import _resume
 
     _resume(sql, tmp_path)
+    mine.opt_in(sql, automatic=False)  # JAP may apply in my name (S14)
     async with get_sessionmaker()() as session:
         app_id = await flow.create_attempt(session, ids["Backend Engineer"], None)
     backend = f"/api/listings/{ids['Backend Engineer']}"

@@ -13,6 +13,9 @@ class Credentials(BaseModel):
 class SignUp(Credentials):
     # The Turnstile token from the page, when the check is on (auth/turnstile.py).
     turnstile: str | None = Field(default=None, max_length=4000)
+    # The terms and privacy tick, with the version of the notice the page showed (S14).
+    accept_terms: bool = False
+    terms_version: str = Field(default="", max_length=40)
 
 
 class VerifyEmail(BaseModel):
@@ -47,12 +50,26 @@ class Password(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class AcceptTerms(BaseModel):
+    """The tick, from an account made before this notice (S14)."""
+
+    terms_version: str = Field(min_length=1, max_length=40)
+
+
 class UserOut(BaseModel):
     id: UUID
     email: str
     is_admin: bool
     two_step: bool
     recovery_codes_left: int
+    # False while this account has not agreed to the notice as it stands (S14): the app
+    # shows the agreement screen before anything else, and the API refuses the rest of
+    # /api until it is given. Required, so a caller cannot leave it out and read as agreed.
+    terms_accepted: bool
+    # How this account can sign in (S16). An account made through Google has no password
+    # until it sets one, and Google cannot be disconnected while that is so.
+    google_connected: bool = False
+    has_password: bool = True
 
 
 class AuthState(BaseModel):
@@ -63,6 +80,8 @@ class AuthState(BaseModel):
     user: UserOut | None
     two_step_pending: bool
     turnstile_site_key: str = ""  # set: the page shows the "prove you're human" check
+    terms_version: str = ""  # the notice the sign-up tick agrees to (S14)
+    google: bool = False  # the GOOGLE_ settings are filled in, so the button is shown (S16)
 
 
 class SignInResult(BaseModel):

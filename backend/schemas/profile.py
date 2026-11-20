@@ -2,6 +2,7 @@
 
 from datetime import time
 from typing import Literal
+from zoneinfo import available_timezones
 
 from pydantic import BaseModel, EmailStr, Field, HttpUrl, field_validator
 
@@ -121,6 +122,12 @@ class ProfileOut(ProfileIn):
     auto_apply_min_skills: int  # F6: Automatic applies at or above this % of required skills
     spend: Spend
     plan: Plan
+    # Consent (S14): JAP may apply in my name, and may do it without asking.
+    submit_opt_in: bool = False
+    auto_opt_in: bool = False
+    # The zone the daily search goes by (U22). None: the service's JAP_TZ, which is what
+    # every account used before they could say.
+    tz: str | None = None
 
 
 class ProfileSaved(ProfileOut):
@@ -136,7 +143,27 @@ class MatchPreview(BaseModel):
 class ProfileSwitches(BaseModel):
     apply_mode: ApplyMode | None = None
     daily_run: bool | None = None
-    daily_run_at: time | None = None  # in JAP_TZ; 06:00 unless changed for testing
+    daily_run_at: time | None = None  # in this account's tz; 06:00 unless changed
+    # The zone daily_run_at is read in (U22). It lives here and not on ProfileIn because
+    # Job preferences PUTs the whole of ProfileIn, and a page that does not know about the
+    # zone would send it back as null and wipe it.
+    tz: str | None = Field(default=None, max_length=64)
     daily_cap: int | None = Field(default=None, ge=0, le=100)  # A1: 20 unless lowered
     spend_cap_usd: float | None = Field(default=None, ge=0, le=100)  # $2 unless changed
     auto_apply_min_skills: int | None = Field(default=None, ge=0, le=100)  # F6: 60, 0 = off
+    # Consent (S14), each given or taken back on its own. Taking back the first takes back
+    # the second with it, and turns Automatic mode off.
+    submit_opt_in: bool | None = None
+    auto_opt_in: bool | None = None
+
+    @field_validator("tz")
+    @classmethod
+    def known_zone(cls, v: str | None) -> str | None:
+        """A name from the IANA database, the same list the browser offers. Anything else
+        would make ZoneInfo raise in the daily trigger, where nobody is there to see it."""
+        name = (v or "").strip()
+        if not name:
+            return None
+        if name not in available_timezones():
+            raise ValueError(f"{name} is not a time zone name")
+        return name

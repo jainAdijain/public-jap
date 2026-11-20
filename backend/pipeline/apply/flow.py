@@ -22,6 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import consent
 from config import get_settings
 from database import tenant
 from database.models import (
@@ -126,6 +127,8 @@ async def why_not(session: AsyncSession, listing_id: uuid.UUID) -> str | None:
     )
     if primary is None or primary.state != "open":
         return "The posting is closed"
+    if not consent.may_submit(await profile_of(session, uid)):  # S14
+        return consent.NEEDS_SUBMIT
     if await active_resume(session) is None:
         return "Upload a resume in Profile first"
     return None
@@ -578,6 +581,11 @@ async def submit(session: AsyncSession, app_id: str) -> dict[str, Any]:
     app = await _app(session, app_id, lock=True)
     if app.status != "applying":
         raise Stop(f"application is {app.status}")
+    # The opt-in again, here rather than only at create-attempt (S14): Approve moves a
+    # waiting attempt straight to applying, so this is the last point before Submit.
+    if not await consent.may_submit_for(session, app.user_id):
+        await fail(session, app, consent.NEEDS_SUBMIT)
+        return {"status": "failed"}
     until = await wait_before_submit(session, now)
     if until is not None:
         await session.rollback()
@@ -713,6 +721,13 @@ async def pick(session: AsyncSession, run_id: str) -> list[str]:
     profile = await profile_of(session)
     if run is None or run.mode != "find_and_apply":
         return []
+    # Consent (S14). Preparing needs the opt-in to apply at all, or every attempt would
+    # Stop at create-attempt; Automatic mode, which sends without asking, needs its own.
+    if not consent.may_submit(profile):
+        return []
+    if profile is not None and profile.apply_mode == "automatic":
+        if not consent.may_apply_automatically(profile):
+            return []
     if await active_resume(session) is None:
         return []
     left = await daily_cap(session) - await applied_today(session, datetime.now(UTC))

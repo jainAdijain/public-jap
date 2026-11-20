@@ -14,6 +14,8 @@ async def test_empty_profile_on_first_read(api: httpx.AsyncClient) -> None:
     assert body["remote_any"] is False
     assert body["apply_mode"] == "review"
     assert body["spend"] == {"month_usd": 0.0, "cap_usd": 1.0, "reached": False}
+    # Agreed to nothing yet, so nothing can be sent (S14; test_consent.py has the rest).
+    assert body["submit_opt_in"] is False and body["auto_opt_in"] is False
 
 
 PROFILE = {
@@ -68,7 +70,9 @@ async def test_bad_email_is_rejected(api: httpx.AsyncClient) -> None:
 
 
 async def test_switches(api: httpx.AsyncClient) -> None:
-    body = (await api.patch("/api/profile", json={"apply_mode": "automatic"})).json()
+    # Automatic mode needs both opt-ins first (S14), which Settings asks for in one press.
+    automatic = {"submit_opt_in": True, "auto_opt_in": True, "apply_mode": "automatic"}
+    body = (await api.patch("/api/profile", json=automatic)).json()
     assert body["apply_mode"] == "automatic" and body["daily_run"] is False
     body = (await api.patch("/api/profile", json={"daily_run": True})).json()
     assert body["apply_mode"] == "automatic" and body["daily_run"] is True
@@ -86,6 +90,22 @@ async def test_switches(api: httpx.AsyncClient) -> None:
     for out_of_range in (-1, 101):
         bad = await api.patch("/api/profile", json={"auto_apply_min_skills": out_of_range})
         assert bad.status_code == 422
+
+
+async def test_time_zone_is_this_accounts_own(api: httpx.AsyncClient) -> None:
+    """U22. None means the service's zone, which is what every account had before."""
+    assert (await api.get("/api/profile")).json()["tz"] is None
+    saved = await api.patch("/api/profile", json={"tz": "Europe/Lisbon"})
+    assert saved.status_code == 200 and saved.json()["tz"] == "Europe/Lisbon"
+    bad = await api.patch("/api/profile", json={"tz": "Mars/Olympus_Mons"})
+    assert bad.status_code == 422
+    assert (await api.get("/api/profile")).json()["tz"] == "Europe/Lisbon"  # unchanged
+    # Saving Job preferences must not wipe it: that page PUTs the whole of ProfileIn and
+    # knows nothing about the zone, which is why tz is a switch and not a preference.
+    assert (await api.put("/api/profile", json=PROFILE)).status_code == 200
+    assert (await api.get("/api/profile")).json()["tz"] == "Europe/Lisbon"
+    back = await api.patch("/api/profile", json={"tz": None})
+    assert back.json()["tz"] is None  # back to the service's zone
 
 
 async def test_spend_shows_this_month(api: httpx.AsyncClient, sql: psycopg.Connection[Any]) -> None:

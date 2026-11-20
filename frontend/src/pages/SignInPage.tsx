@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 
 import { ApiError, auth, type AuthState, type User } from '../api/client'
 import { errorText } from '../format'
+import { googleOutcome, takeToken } from '../query'
+import PrivacyNotice from './PrivacyPage'
 
 // The screen shown before JAP opens (PRD S1 to S6, S10): create an account, sign in, the
 // two-step code, Forgot password and the reset link from the email. Anyone can create an
@@ -19,22 +21,62 @@ type Mode =
   | 'verify-sent'
   | 'verifying'
   | 'verify-failed'
+  | 'notice'
 
 const MIN_PASSWORD = 12
 
-function Card({ title, lead, children }: { title: string; lead?: string; children?: ReactNode }) {
+function Card({ title, lead, wide, children }: { title: string; lead?: string; wide?: boolean; children?: ReactNode }) {
   return (
     <main className="auth">
-      <div className="auth-card">
+      <div className={wide ? 'auth-card wide' : 'auth-card'}>
         <div className="logo auth-logo">
           <span className="logo-mark">JAP</span>
           <span className="logo-name">Job Application Pipeline</span>
         </div>
-        <h1>{title}</h1>
+        {title && <h1>{title}</h1>}
         {lead && <p className="muted">{lead}</p>}
         {children}
       </div>
     </main>
+  )
+}
+
+/**
+ * Sign in with Google (S16). A link, not a fetch: the browser itself has to go to Google
+ * and come back, which XHR cannot do. Shown only where the server says it is set up.
+ */
+export function GoogleButton({ show, label }: { show: boolean; label: string }) {
+  if (!show) return null
+  return (
+    <>
+      <hr className="rule" />
+      <a className="btn auth-submit" href={auth.googleStartUrl}>
+        {/* Google's own G, so the button is recognisable at a glance. */}
+        <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">
+          <path fill="#4285F4" d="M45 24c0-1.6-.1-2.7-.4-4H24v7.5h12c-.2 2-1.6 5-4.5 7l6.9 5.4C42.5 36.2 45 30.6 45 24z" />
+          <path fill="#34A853" d="M24 46c5.9 0 10.9-2 14.5-5.3l-6.9-5.4c-1.9 1.3-4.400 2.1-7.6 2.1-5.8 0-10.7-3.9-12.5-9.1l-7.1 5.5C8 40.4 15.4 46 24 46z" />
+          <path fill="#FBBC05" d="M11.5 28.3A13.6 13.6 0 0 1 10.8 24c0-1.5.3-3 .7-4.3l-7.1-5.5A22 22 0 0 0 2 24c0 3.5.8 6.9 2.4 9.8z" />
+          <path fill="#EA4335" d="M24 10.8c3.3 0 5.5 1.4 6.8 2.6l5-4.9C32.9 5.7 29.9 4 24 4 15.4 4 8 9.6 4.4 14.2l7.1 5.5C13.3 14.7 18.2 10.8 24 10.8z" />
+        </svg>
+        {label}
+      </a>
+    </>
+  )
+}
+
+/** The terms and privacy tick (S14), on sign-up and on the agreement screen. */
+export function TermsTick({ checked, onChange, onRead }: { checked: boolean; onChange: (v: boolean) => void; onRead: () => void }) {
+  return (
+    <label className="tick">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span>
+        I agree to the{' '}
+        <button type="button" className="btn-link" onClick={onRead}>
+          terms and privacy notice
+        </button>
+        .
+      </span>
+    </label>
   )
 }
 
@@ -63,18 +105,6 @@ function Field(props: {
       {props.hint && <small className="muted">{props.hint}</small>}
     </label>
   )
-}
-
-/** A token from an emailed link (?reset=... or ?verify=...), taken out of the address bar at once. */
-function takeToken(name: string): string | null {
-  const params = new URLSearchParams(window.location.search)
-  const token = params.get(name)
-  if (token) {
-    params.delete(name)
-    const rest = params.toString()
-    window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`)
-  }
-  return token
 }
 
 type TurnstileApi = {
@@ -123,13 +153,16 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
     resetToken ? 'reset' : verifyToken ? 'verifying' : state.two_step_pending ? 'code' : first ? 'create' : 'sign-in',
   )
   const [human, setHuman] = useState<string | null>(null)
+  const [agreed, setAgreed] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const needsHuman = Boolean(state.turnstile_site_key)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [again, setAgain] = useState('')
   const [code, setCode] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  // Back from Google with nobody signed in: it was refused, and saying so is the whole
+  // point of the ?google= on the way back (S16).
+  const [error, setError] = useState<string | null>(() => googleOutcome().problem)
   const [busy, setBusy] = useState(false)
 
   // The emailed link (S10): confirm the address and go in. The link works once, so this
@@ -188,6 +221,18 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
   const humanCheck = needsHuman && <Turnstile siteKey={state.turnstile_site_key} onToken={setHuman} />
   const humanProblem = () => (needsHuman && !human ? "Tick the check that you're human first" : null)
 
+  // The notice itself, read from the sign-up form and shown before anyone types anything.
+  if (mode === 'notice') {
+    return (
+      <Card title="" wide>
+        <PrivacyNotice />
+        <button type="button" className="btn-primary auth-submit" onClick={() => setMode('create')}>
+          Back to creating your account
+        </button>
+      </Card>
+    )
+  }
+
   if (mode === 'create') {
     return (
       <Card
@@ -197,9 +242,9 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
         <form
           className="auth-form"
           onSubmit={run(async () => {
-            const problem = newPasswordProblem() ?? humanProblem()
+            const problem = newPasswordProblem() ?? humanProblem() ?? (agreed ? null : 'Agree to the terms and the privacy notice first')
             if (problem) throw new Error(problem)
-            const res = await auth.signUp(email, password, human)
+            const res = await auth.signUp(email, password, state.terms_version, human)
             if (res.user) onSignedIn(res.user)
             else if (res.verify_email) go('verify-sent')
           })}
@@ -207,6 +252,7 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
           <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" autoFocus />
           <Field label="Password" type="password" value={password} onChange={setPassword} autoComplete="new-password" hint={`At least ${MIN_PASSWORD} characters.`} />
           <Field label="Password again" type="password" value={again} onChange={setAgain} autoComplete="new-password" />
+          <TermsTick checked={agreed} onChange={setAgreed} onRead={() => setMode('notice')} />
           {humanCheck}
           {failure}
           {submit('Create account')}
@@ -215,6 +261,8 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
               I already have an account
             </button>
           )}
+          {/* Google asks for the same agreement, on the screen straight after signing in. */}
+          <GoogleButton show={state.google} label="Create your account with Google" />
         </form>
       </Card>
     )
@@ -378,6 +426,7 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
         ) : (
           <p className="muted small">New accounts are paused for now.</p>
         )}
+        <GoogleButton show={state.google} label="Continue with Google" />
       </form>
     </Card>
   )

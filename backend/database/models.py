@@ -100,6 +100,10 @@ class Profile(Timestamps, Base):
     # F6: Automatic mode applies only at or above this share of my required skills.
     auto_apply_min_skills: Mapped[int] = mapped_column(SmallInteger, server_default="60")
     spend_cap_usd: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))  # None: .env cap
+    # Consent (PRD S14): JAP may apply in my name, and may do it without asking (Automatic).
+    # Null means not agreed, and nothing is submitted.
+    submit_opt_in_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    auto_opt_in_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ResumeVersion(Timestamps, Base):
@@ -392,6 +396,8 @@ class AppUser(Timestamps, Base):
 
     id: Mapped[uuid.UUID] = _id()
     email: Mapped[str] = mapped_column(Text)
+    # Empty when this account signs in with Google only (S16). auth/passwords.py answers an
+    # empty hash exactly as it answers a wrong password, so there is nothing to sign in to.
     password_hash: Mapped[str] = mapped_column(Text)
     is_admin: Mapped[bool] = mapped_column(Boolean, server_default="false")
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -406,10 +412,27 @@ class AppUser(Timestamps, Base):
         DateTime(timezone=True), server_default=func.now()
     )
     last_sign_in_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The terms and privacy notice this account agreed to at sign-up (PRD S14). Null on an
+    # account made before consent existed: it is asked once on its next visit.
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    terms_version: Mapped[str | None] = mapped_column(Text)
     # What the admin set for this account in place of the plan's numbers (None: the plan's).
     limit_ai_usd: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     limit_boards: Mapped[int | None] = mapped_column(Integer)
     limit_applications: Mapped[int | None] = mapped_column(Integer)
+
+
+class UserIdentity(Timestamps, Base):
+    """An account somewhere else that signs in to this one (PRD S16). Found by
+    (provider, subject): the provider's own id for the person, never their email."""
+
+    __tablename__ = "user_identity"
+
+    id: Mapped[uuid.UUID] = _id()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    provider: Mapped[str] = mapped_column(Text)
+    subject: Mapped[str] = mapped_column(Text)
+    email: Mapped[str | None] = mapped_column(Text)  # what they said then; never looked up by
 
 
 class AuthSession(Timestamps, Base):

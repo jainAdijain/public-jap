@@ -164,7 +164,7 @@ async def test_optional_letter_and_no_field_get_no_letter(
 
 async def test_edited_letter_is_what_is_sent_and_attached(
     setup: dict[str, Any], sql: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch,
-    api: httpx.AsyncClient,
+    api: httpx.AsyncClient, sending_on: None,
 ) -> None:  # fmt: skip
     _fake_form(monkeypatch, [*FORM, LETTER_FILE])
     monkeypatch.setattr(client, "chat", Stub([_letter(), json.dumps(CLAIMS_OK)]))

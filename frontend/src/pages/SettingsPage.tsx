@@ -7,6 +7,15 @@ import { useAuth } from '../authContext'
 import AccountSection from './AccountSection'
 
 const hhmm = (t: string) => t.slice(0, 5)
+
+/** The IANA names to offer (U22): the browser's list where it has one, else enough of a
+ * list to pick from. The zone already saved is always in it, even on a browser that has
+ * since dropped the name, so a saved setting never silently reads as something else. */
+function zones(saved: string | null): string[] {
+  const supported = (Intl as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf
+  const all = supported ? supported('timeZone') : [Intl.DateTimeFormat().resolvedOptions().timeZone, 'UTC']
+  return saved && !all.includes(saved) ? [saved, ...all] : all
+}
 const size = (bytes: number) =>
   bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : bytes < 1024 ** 3 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`
 
@@ -509,9 +518,51 @@ function AccountsCard() {
   )
 }
 
+/** Agreeing to JAP sending without showing you first (S14). Its own screen, because it is
+ * a different thing to agree to than JAP applying at all. */
+function AutoOptInModal({ onCancel, onAgree }: { onCancel: () => void; onAgree: () => Promise<void> }) {
+  const [agreed, setAgreed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  return (
+    <div className="modal-bg" onClick={onCancel}>
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="auto-title" onClick={(e) => e.stopPropagation()}>
+        <div>
+          <h2 id="auto-title">Let JAP apply without asking</h2>
+          <p style={{ marginTop: 10 }}>
+            JAP will fill in forms and press Submit <b>in your name</b> without showing them to you first, for jobs it finds on its own as well as ones you pick. Only jobs with nothing unclear are sent; the rest
+            still wait for you.
+          </p>
+          <p style={{ marginTop: 10 }}>You can turn this off again here at any time. Applications already sent cannot be unsent.</p>
+          <label className="tick" style={{ marginTop: 12 }}>
+            <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+            <span>I agree to JAP applying for jobs in my name, without asking me each time.</span>
+          </label>
+        </div>
+        <div className="mfoot">
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!agreed || busy}
+            onClick={() => {
+              setBusy(true)
+              void onAgree().finally(() => setBusy(false))
+            }}
+          >
+            {busy ? 'One moment…' : 'Turn it on'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const { profile, setProfile, toast } = useApp()
   const { user } = useAuth()
+  const [askAuto, setAskAuto] = useState(false)
   const flip = async (s: Switches, done?: string) => {
     try {
       setProfile(await api.setSwitches(s))
@@ -529,9 +580,19 @@ export default function SettingsPage() {
   }
   const automatic = profile.apply_mode === 'automatic'
   const spend = profile.spend
+  const askAutoModal = askAuto && (
+    <AutoOptInModal
+      onCancel={() => setAskAuto(false)}
+      onAgree={async () => {
+        setAskAuto(false)
+        await flip({ submit_opt_in: true, auto_opt_in: true, apply_mode: 'automatic' }, 'JAP now sends applications with nothing unclear.')
+      }}
+    />
+  )
   const pct = Math.min(100, spend.cap_usd ? (spend.month_usd / spend.cap_usd) * 100 : 100)
   return (
     <section className="page">
+      {askAutoModal}
       <div className="page-head">
         <div>
           <h1>Settings</h1>
@@ -554,7 +615,16 @@ export default function SettingsPage() {
               <span className="d">JAP fills in each form. Nothing is sent until you press Send application.</span>
             </label>
             <label>
-              <input type="radio" name="mode" checked={automatic} onChange={() => void flip({ apply_mode: 'automatic' }, 'JAP now sends applications with nothing unclear.')} />
+              <input
+                type="radio"
+                name="mode"
+                checked={automatic}
+                onChange={() => {
+                  // Sending without showing you first is its own agreement (S14).
+                  if (!profile.auto_opt_in) setAskAuto(true)
+                  else void flip({ apply_mode: 'automatic' }, 'JAP now sends applications with nothing unclear.')
+                }}
+              />
               <span>
                 <b>JAP applies for me</b>
               </span>
@@ -608,6 +678,25 @@ export default function SettingsPage() {
               )}
             </label>
           </div>
+          {/* What you have agreed JAP may do in your name (S14), and how to take it back. */}
+          <p className="help">
+            {profile.submit_opt_in ? (
+              <>
+                You have agreed that JAP may apply for jobs in your name
+                {profile.auto_opt_in ? ', without asking you each time' : ''}.{' '}
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => void flip({ submit_opt_in: false }, 'JAP will not apply for you. Nothing more will be sent.')}
+                >
+                  Take that back
+                </button>
+                , and nothing more is sent.
+              </>
+            ) : (
+              'You have not agreed to JAP applying in your name yet, so nothing can be sent. The first time you press Apply it asks.'
+            )}
+          </p>
           <div className="inline spread">
             <label className="inline" htmlFor="daily-at">
               Search for new jobs every day at
@@ -620,6 +709,20 @@ export default function SettingsPage() {
                   if (v) await flip({ daily_run_at: v }, `Daily search at ${v}.`)
                 }}
               />
+              {/* The zone that time is read in (U22), each account's own. */}
+              <select
+                aria-label="Time zone"
+                style={{ width: 'auto' }}
+                value={profile.tz ?? ''}
+                onChange={(e) => void flip({ tz: e.target.value || null }, `Daily search in ${e.target.value || 'the JAP server time zone'}.`)}
+              >
+                <option value="">Server time zone</option>
+                {zones(profile.tz).map((z) => (
+                  <option key={z} value={z}>
+                    {z}
+                  </option>
+                ))}
+              </select>
             </label>
             <input
               type="checkbox"
@@ -632,7 +735,7 @@ export default function SettingsPage() {
           </div>
           <p className="help">
             {profile.daily_run
-              ? `Every day at ${hhmm(profile.daily_run_at)}, JAP searches every company you follow${automatic ? ' and sends what it can' : ''}. It runs only while this computer is awake.`
+              ? `Every day at ${hhmm(profile.daily_run_at)} ${profile.tz ?? 'server time'}, JAP searches every company you follow${automatic ? ' and sends what it can' : ''}. It runs only while this computer is awake.`
               : 'Off: JAP searches only when you press Find new jobs, save Job preferences or use a new resume.'}
           </p>
         </div>

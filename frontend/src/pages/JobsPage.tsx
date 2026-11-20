@@ -302,6 +302,7 @@ function FindButton() {
 function ApplyModal({ rows, onCancel, onDone }: { rows: ListingRow[]; onCancel: () => void; onDone: () => void }) {
   const { profile, resume, refresh, toast } = useApp()
   const [busy, setBusy] = useState(false)
+  const [optIn, setOptIn] = useState(false)
   const ok = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     ok.current?.focus()
@@ -314,8 +315,20 @@ function ApplyModal({ rows, onCancel, onDone }: { rows: ListingRow[]; onCancel: 
   const n = ready.length
   const automatic = profile?.apply_mode === 'automatic'
   const unclear = ready.filter((r) => !r.work_mode).length
+  // The first application needs the opt-in to apply in your name (S14). It is asked here
+  // because this is the one confirmation both Apply and bulk Apply go through.
+  const needsOptIn = profile ? !profile.submit_opt_in : false
   const confirm = async () => {
     setBusy(true)
+    if (needsOptIn) {
+      try {
+        await api.setSwitches({ submit_opt_in: true })
+      } catch (err) {
+        setBusy(false)
+        toast({ text: errorText(err), bad: true })
+        return
+      }
+    }
     let started = 0
     const problems: string[] = []
     for (const r of ready) {
@@ -356,12 +369,25 @@ function ApplyModal({ rows, onCancel, onDone }: { rows: ListingRow[]; onCancel: 
             {profile?.spend.reached && <li className="warn-text">The monthly AI limit is reached, so forms that need a written answer or a cover letter will stop for you.</li>}
             {other > 0 && <li className="muted">{plural(other, 'ticked job')} already {other === 1 ? 'has' : 'have'} an application and {other === 1 ? 'is' : 'are'} left out.</li>}
           </ul>
+          {needsOptIn && (
+            <>
+              <hr className="rule" style={{ margin: '14px 0' }} />
+              <p>
+                JAP opens the employer's form, fills it in with your details and your resume, and presses Submit <b>as you</b>. The employer gets an application from you. You can take this back at any time in
+                Settings.
+              </p>
+              <label className="tick" style={{ marginTop: 10 }}>
+                <input type="checkbox" checked={optIn} onChange={(e) => setOptIn(e.target.checked)} />
+                <span>I agree to JAP applying for jobs in my name.</span>
+              </label>
+            </>
+          )}
         </div>
         <div className="mfoot">
           <button type="button" onClick={onCancel}>
             Cancel
           </button>
-          <button ref={ok} type="button" className="btn-primary" disabled={busy || n === 0 || !resume} onClick={() => void confirm()}>
+          <button ref={ok} type="button" className="btn-primary" disabled={busy || n === 0 || !resume || (needsOptIn && !optIn)} onClick={() => void confirm()}>
             {busy ? 'Starting…' : automatic ? `Apply to ${n}` : `Prepare ${n}`}
           </button>
         </div>

@@ -248,10 +248,15 @@ async def test_daily_run_applies_in_automatic_mode(
     api: httpx.AsyncClient, sql: psycopg.Connection[Any]
 ) -> None:
     now = datetime.now(IST)
-    await api.patch(
-        "/api/profile",
-        json={"daily_run": True, "daily_run_at": now.strftime("%H:%M"), "apply_mode": "automatic"},
-    )
+    switches = {
+        "daily_run": True,
+        "daily_run_at": now.strftime("%H:%M"),
+        "apply_mode": "automatic",
+        # Automatic mode is two agreements away (S14); Settings sends them together.
+        "submit_opt_in": True,
+        "auto_opt_in": True,
+    }
+    assert (await api.patch("/api/profile", json=switches)).status_code == 200
     assert await daily_step() is not None
     assert sql.execute("SELECT trigger, mode FROM run").fetchall() == [
         ("scheduled", "find_and_apply")
@@ -328,10 +333,11 @@ async def test_ops_endpoint(
 
 async def test_submit_in_automatic_mode(
     setup: dict[str, Any], sql: psycopg.Connection[Any], monkeypatch: pytest.MonkeyPatch,
-    api: httpx.AsyncClient,
+    api: httpx.AsyncClient, sending_on: None,
 ) -> None:  # fmt: skip
     """Automatic mode end to end on the database side: prepared, then submitted at once."""
-    await api.patch("/api/profile", json={"apply_mode": "automatic"})
+    automatic = {"submit_opt_in": True, "auto_opt_in": True, "apply_mode": "automatic"}
+    assert (await api.patch("/api/profile", json=automatic)).status_code == 200
     _fake_form(monkeypatch, FORM)
     _known_mode(sql, setup["listing"])
 

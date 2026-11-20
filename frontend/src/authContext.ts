@@ -7,6 +7,8 @@ export type Auth = {
   setUser: (u: User) => void
   /** Sign out of this browser (everywhere: every browser) and show sign-in. */
   signOut: (everywhere?: boolean) => Promise<void>
+  /** The server has a Google OAuth client (S16), so Settings offers Connect. */
+  google: boolean
 }
 
 export const AuthCtx = createContext<Auth | null>(null)

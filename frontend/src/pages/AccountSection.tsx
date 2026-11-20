@@ -3,7 +3,9 @@ import { useState, type FormEvent } from 'react'
 import { auth, type TwoStepSetup } from '../api/client'
 import { useApp } from '../appContext'
 import { useAuth } from '../authContext'
+import { DeleteMyAccount, ExportMyData } from '../components/YourData'
 import { errorText } from '../format'
+import PrivacyNotice from './PrivacyPage'
 
 // Settings > Account (PRD U21): password, two-step sign-in with recovery codes, sign out.
 
@@ -37,7 +39,7 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void 
 }
 
 export default function AccountSection() {
-  const { user, setUser, signOut } = useAuth()
+  const { user, setUser, signOut, google } = useAuth()
   const { toast } = useApp()
   const [open, setOpen] = useState<Open>(null)
   const [current, setCurrent] = useState('')
@@ -216,6 +218,60 @@ export default function AccountSection() {
             </div>
           </form>
         )}
+
+        <hr className="rule" />
+
+        {/* What this account agreed to, and the notice itself, readable at any time (S14). */}
+        <details className="notice-read">
+          <summary>Terms and privacy notice</summary>
+          <p className="help">{user.terms_accepted ? 'You have agreed to this notice as it stands.' : 'You have not agreed to this notice yet.'}</p>
+          <div className="notice-scroll">
+            <PrivacyNotice />
+          </div>
+        </details>
+
+        {google && (
+          <>
+            <hr className="rule" />
+            <div className="inline spread">
+              <span>
+                <b>Google</b>{' '}
+                <span className="muted">{user.google_connected ? '· connected, so you can sign in with it' : '· not connected'}</span>
+              </span>
+              {user.google_connected ? (
+                <button
+                  type="button"
+                  disabled={busy || !user.has_password}
+                  title={user.has_password ? undefined : 'Set a password first, or you could not sign in again'}
+                  onClick={() => void run(async () => setUser(await auth.googleDisconnect()))()}
+                >
+                  Disconnect
+                </button>
+              ) : (
+                <a className="btn" href={auth.googleStartUrl}>
+                  Connect
+                </a>
+              )}
+            </div>
+            {!user.has_password && user.google_connected && (
+              <p className="help">This account has no password, so Google is the only way in. Set one with Change password to disconnect it.</p>
+            )}
+            {failure}
+          </>
+        )}
+
+        <hr className="rule" />
+
+        {/* Your data, back or gone (S15). Both are yours to do, at any time. */}
+        <div className="inline spread">
+          <span>
+            <b>Your data</b> <span className="muted">· a zip of everything JAP holds about you</span>
+          </span>
+          <ExportMyData onProblem={(text) => toast({ text, bad: true })} />
+        </div>
+        <p className="help">Your profile, resumes, answers, applications, searches and files, with a note saying what each one is.</p>
+        {/* The account is gone, so there is no state left to update: start again at sign-in. */}
+        <DeleteMyAccount user={user} onDeleted={() => window.location.replace('/')} />
 
         <hr className="rule" />
 

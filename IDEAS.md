@@ -16,14 +16,14 @@ limits, is built on the `tenancy` branch and is not listed.
 
 | Id | Phase | Status | Idea |
 | --- | --- | --- | --- |
-| [IDEA-1](#idea-1--google-sign-in) | 2 | Open | Google sign-in |
-| [IDEA-2](#idea-2--searches-side-by-side-one-per-user) | 2 | Open | Searches side by side, one per user |
-| [IDEA-3](#idea-3--a-freshness-window-on-the-shared-board-fetch) | 2 | Open | A freshness window on the shared board fetch |
-| [IDEA-4](#idea-4--the-daily-search-in-each-users-own-time-zone) | 2 | Open | The daily search in each user's own time zone |
-| [IDEA-5](#idea-5--delete-my-account-and-export-my-data) | 2 | Open | Delete my account, and export my data |
-| [IDEA-6](#idea-6--consent-before-jap-acts-for-a-user) | 2 | Open | Consent before JAP acts for a user |
-| [IDEA-7](#idea-7--a-privacy-notice-at-sign-up) | 2 | Open | A privacy notice at sign-up |
-| [IDEA-8](#idea-8--a-your-plan-line-in-settings) | 1 follow-up | Open | A "Your plan" line in Settings |
+| [IDEA-1](#idea-1--google-sign-in) | 2 | Built (v0.20.0) | Google sign-in |
+| [IDEA-2](#idea-2--searches-side-by-side-one-per-user) | 2 | Built (v0.20.0) | Searches side by side, one per user |
+| [IDEA-3](#idea-3--a-freshness-window-on-the-shared-board-fetch) | 2 | Built (v0.20.0) | A freshness window on the shared board fetch |
+| [IDEA-4](#idea-4--the-daily-search-in-each-users-own-time-zone) | 2 | Built (v0.20.0) | The daily search in each user's own time zone |
+| [IDEA-5](#idea-5--delete-my-account-and-export-my-data) | 2 | Built (v0.20.0) | Delete my account, and export my data |
+| [IDEA-6](#idea-6--consent-before-jap-acts-for-a-user) | 2 | Built (v0.20.0) | Consent before JAP acts for a user |
+| [IDEA-7](#idea-7--a-privacy-notice-at-sign-up) | 2 | Built (v0.20.0) | A privacy notice at sign-up |
+| [IDEA-8](#idea-8--a-your-plan-line-in-settings) | 1 follow-up | Built (v0.19.0) | A "Your plan" line in Settings |
 | [IDEA-9](#idea-9--invites) | - | Open | Invites |
 | [IDEA-10](#idea-10--an-always-on-server-instead-of-the-mac) | 3 | Open | An always-on server instead of the Mac |
 | [IDEA-11](#idea-11--encrypted-off-site-backups) | 3 | Open | Encrypted off-site backups |
@@ -45,7 +45,7 @@ limits, is built on the `tenancy` branch and is not listed.
 
 ## IDEA-1 — Google sign-in
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 2).
+**Status:** Built (v0.20.0). Recorded 17 Nov 2026, from the public-jap plan (Phase 2).
 
 Sign in with Google next to email and password. OIDC authorization-code flow with PKCE over
 `httpx`; a `user_identity (user_id, provider, subject)` table; `password_hash` becomes nullable.
@@ -53,7 +53,7 @@ A Google account is linked to an existing one only when Google reports the email
 
 ## IDEA-2 — Searches side by side, one per user
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 2).
+**Status:** Built (v0.20.0). Recorded 17 Nov 2026, from the public-jap plan (Phase 2).
 
 After Phase 1 searches still go through one queue for the whole service, so one user's search
 waits behind everyone else's. `one_queued_run` and `start_run` become per user, and
@@ -61,35 +61,35 @@ waits behind everyone else's. `one_queued_run` and `start_run` become per user, 
 
 ## IDEA-3 — A freshness window on the shared board fetch
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 2).
+**Status:** Built (v0.20.0). Recorded 17 Nov 2026, from the public-jap plan (Phase 2).
 
 A board is fetched once however many users follow it. `fetch-board` is keyed per board with a
 freshness window, so two users searching minutes apart share one fetch instead of making two.
 
 ## IDEA-4 — The daily search in each user's own time zone
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 2).
+**Status:** Built (v0.20.0). Recorded 17 Nov 2026, from the public-jap plan (Phase 2).
 
 `daily-schedule` runs per user at their morning, from `profile.tz`, not at one hour for all.
 
 ## IDEA-5 — Delete my account, and export my data
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 2).
+**Status:** Built (v0.20.0). Recorded 17 Nov 2026, from the public-jap plan (Phase 2).
 
 Delete-my-account removes every private row and file; export gives a zip of them.
 `application_frozen` needs an erasure path of its own.
 
 ## IDEA-6 — Consent before JAP acts for a user
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 2).
+**Status:** Built (v0.20.0). Recorded 17 Nov 2026, from the public-jap plan (Phase 2).
 
 Acceptance of the terms and the privacy notice at sign-up, an explicit opt-in before public-jap
 submits an application in a user's name, and a second one before automatic mode.
 
 ## IDEA-7 — A privacy notice at sign-up
 
-**Status:** Open, waiting on Aditya: draft it now, or when the link is shared beyond people he
-knows. Recorded 17 Nov 2026, from the Phase 1 session.
+**Status:** Built (v0.20.0), with the notice itself still a marked draft for Aditya to
+write. Recorded 17 Nov 2026, from the Phase 1 session.
 
 Once strangers sign up JAP holds their name, email, phone, resume and answers, and India's DPDP
 Act and GDPR expect them to be told what is collected and why before they hand it over. A short
@@ -100,8 +100,7 @@ Aditya's name, so he reads it before it goes live. Nothing in Phase 1 shows such
 
 ## IDEA-8 — A "Your plan" line in Settings
 
-**Status:** Open, offered for the Phase 1 pull request and not answered. Recorded 17 Nov 2026,
-from the Phase 1 session.
+**Status:** Built (v0.19.0). Recorded 17 Nov 2026, from the Phase 1 session.
 
 A user sees no plan anywhere, and the free limit is 1 company, so nearly every new user meets it
 as an unexplained error. One line in Settings, "Free plan: 1 company, 20 applications a day, $2

@@ -1,7 +1,8 @@
-"""Sign-in, sign-up, password reset and two-step sign-in (PRD S1 to S9, U21).
+"""Sign-in, sign-up, password reset and two-step sign-in (PRD S1 to S9, S14, U21).
 
 These routes are the only ones besides /api/health that answer without a session. The rest of
-/api carries the CurrentUser dependency (main.py).
+/api carries the AgreedUser dependency (main.py), which also wants the terms ticked; these do
+not, because /auth/terms is how an older account gives that tick.
 
 Sign-up is open (PRD 1.18 step 2: S1, S10). The first account is the admin and is signed in
 at once. Every account after it gets an emailed link and has no session until the link is
@@ -16,18 +17,20 @@ import secrets
 from datetime import timedelta
 
 from fastapi import APIRouter, Request, Response
-from sqlalchemy import func, select, text
+from fastapi.responses import RedirectResponse
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import ApiError
-from auth import accounts, limits, passwords, sessions, totp, turnstile
+from auth import accounts, consent, limits, oidc, passwords, sessions, totp, turnstile
 from auth.deps import CurrentSession, CurrentUser
 from config import get_settings
-from database.models import AppUser, PasswordReset
+from database.models import AppUser, PasswordReset, UserIdentity
 from database.session import Session
 from pipeline.notify import EmailNotSent, Mail
 from pipeline.notify import send as send_mail
 from schemas.auth import (
+    AcceptTerms,
     AuthState,
     Code,
     Credentials,
@@ -59,13 +62,23 @@ EXPIRED_LINK = "This link has expired or was already used. Ask for a new one."
 SIGN_UP_LOCK = 7_342_001  # pg_advisory_xact_lock key: one sign-up at a time
 
 
-def user_out(user: AppUser) -> UserOut:
+async def user_out(session: AsyncSession, user: AppUser) -> UserOut:
+    """Takes the session because what this account can sign in with (S16) is a row, not a
+    column: reporting it from a default would be reporting a guess."""
+    google = await session.scalar(
+        select(UserIdentity.id).where(
+            UserIdentity.user_id == user.id, UserIdentity.provider == "google"
+        )
+    )
     return UserOut(
         id=user.id,
         email=user.email,
         is_admin=user.is_admin,
         two_step=user.totp_secret is not None,
         recovery_codes_left=len(user.recovery_codes or []),
+        terms_accepted=consent.accepted_terms(user),
+        google_connected=google is not None,
+        has_password=bool(user.password_hash),
     )
 
 
@@ -93,6 +106,13 @@ def _new_password(password: str) -> None:
         raise ApiError(422, "weak_password", problem)
 
 
+def _ticked(accepted: bool, version: str) -> None:
+    """The terms and privacy tick (S14). A tick against an older notice does not count:
+    the page is told the current version and sends back the one it displayed."""
+    if not accepted or version != consent.TERMS_VERSION:
+        raise ApiError(422, "terms_not_accepted", consent.NEEDS_TERMS)
+
+
 @router.get("/state", response_model=AuthState)
 async def state(request: Request, session: Session) -> AuthState:
     has_accounts = await accounts.any_account(session)
@@ -102,9 +122,11 @@ async def state(request: Request, session: Session) -> AuthState:
     return AuthState(
         has_accounts=has_accounts,
         sign_up_open=not has_accounts or not await accounts.sign_up_paused(session),
-        user=user_out(user) if user else None,
+        user=await user_out(session, user) if user else None,
         two_step_pending=user is None and pending is not None,
         turnstile_site_key=get_settings().turnstile_site_key,
+        terms_version=consent.TERMS_VERSION,
+        google=get_settings().google_ready,
     )
 
 
@@ -133,6 +155,7 @@ async def _first_account(session: AsyncSession, body: SignUp) -> AppUser:
     user.is_admin = True
     user.email_verified_at = sessions.now()
     user.password_changed_at = sessions.now()
+    consent.accept_terms(user, sessions.now())
     await session.flush()
     return user
 
@@ -146,6 +169,7 @@ async def sign_up(
     account, one still waiting for its link (which is sent again), or one that exists."""
     await limits.check(session, request, "sign-up", body.email)
     await turnstile.check(body.turnstile, limits.client_ip(request))
+    _ticked(body.accept_terms, body.terms_version)
     await session.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": SIGN_UP_LOCK})
     if not await accounts.any_account(session):
         user = await _first_account(session, body)
@@ -153,7 +177,7 @@ async def sign_up(
         user.last_sign_in_at = sessions.now()
         await sessions.start(session, user, sessions.SIGNED_IN, request, response)
         await session.commit()
-        return SignInResult(signed_in=True, two_step=False, user=user_out(user))
+        return SignInResult(signed_in=True, two_step=False, user=await user_out(session, user))
     if await accounts.sign_up_paused(session):
         raise ApiError(403, "sign_up_closed", SIGN_UP_CLOSED)
     _new_password(body.password)
@@ -161,11 +185,15 @@ async def sign_up(
     mail: Mail | None = None
     if existing is None:
         user = AppUser(email=body.email, password_hash=await passwords.hash_password(body.password))
+        consent.accept_terms(user, sessions.now())
         session.add(user)
         await session.flush()
         mail = await accounts.verification_mail(session, user, force=True)
         await accounts.start_workspace(session, user)
     elif existing.email_verified_at is None and existing.disabled_at is None:
+        # Still waiting for its link: the tick just given counts for it too (S14), so the
+        # account is not asked a second time the moment the link is opened.
+        consent.accept_terms(existing, sessions.now())
         mail = await accounts.verification_mail(session, existing)
     await session.commit()
     await _send(mail, "Verification")
@@ -185,7 +213,7 @@ async def verify_email(
     user.last_sign_in_at = sessions.now()
     await sessions.start(session, user, sessions.SIGNED_IN, request, response)
     await session.commit()
-    return SignInResult(signed_in=True, two_step=False, user=user_out(user))
+    return SignInResult(signed_in=True, two_step=False, user=await user_out(session, user))
 
 
 @router.post("/verify/resend", status_code=202)
@@ -228,10 +256,10 @@ async def sign_in(
     user.last_sign_in_at = sessions.now()
     await sessions.start(session, user, sessions.SIGNED_IN, request, response)
     await session.commit()
-    return SignInResult(signed_in=True, two_step=False, user=user_out(user))
+    return SignInResult(signed_in=True, two_step=False, user=await user_out(session, user))
 
 
-def _use_code(user: AppUser, code: str) -> bool:
+def use_code(user: AppUser, code: str) -> bool:
     """True when code is the app's code now or an unused recovery code (used up here)."""
     assert user.totp_secret is not None
     step = totp.matching_step(user.totp_secret, code, user.totp_last_step)
@@ -259,7 +287,7 @@ async def sign_in_code(
     if user is None or user.totp_secret is None:
         raise ApiError(401, "two_step_expired", "Sign-in timed out. Enter your password again.")
     _locked(user)
-    if not _use_code(user, body.code):
+    if not use_code(user, body.code):
         pending.code_tries += 1
         if pending.code_tries >= sessions.TWO_STEP_TRIES:
             await session.delete(pending)
@@ -273,7 +301,7 @@ async def sign_in_code(
     user.last_sign_in_at = sessions.now()
     await sessions.start(session, user, sessions.SIGNED_IN, request, response)
     await session.commit()
-    return SignInResult(signed_in=True, two_step=False, user=user_out(user))
+    return SignInResult(signed_in=True, two_step=False, user=await user_out(session, user))
 
 
 @router.post("/sign-out", status_code=204)
@@ -294,8 +322,18 @@ async def sign_out_everywhere(user: CurrentUser, response: Response, session: Se
 
 
 @router.get("/me", response_model=UserOut)
-async def me(user: CurrentUser) -> UserOut:
-    return user_out(user)
+async def me(user: CurrentUser, session: Session) -> UserOut:
+    return await user_out(session, user)
+
+
+@router.post("/terms", response_model=UserOut)
+async def accept_terms(body: AcceptTerms, user: CurrentUser, session: Session) -> UserOut:
+    """Agree to the terms and the privacy notice (S14), from an account made before this
+    notice. New accounts tick the same box at sign-up."""
+    _ticked(True, body.terms_version)
+    consent.accept_terms(user, sessions.now())
+    await session.commit()
+    return await user_out(session, user)
 
 
 @router.post("/forgot", status_code=202)
@@ -354,7 +392,9 @@ async def reset(body: Reset, session: Session) -> None:
     await session.commit()
 
 
-async def _check_password(session: AsyncSession, user: AppUser, password: str) -> None:
+async def check_password(session: AsyncSession, user: AppUser, password: str) -> None:
+    """The account's own password, with the same lockout as signing in. Shared with
+    api/account.py, which asks for it before deleting everything (S15)."""
     _locked(user)
     if not await passwords.verify_password(password, user.password_hash):
         await _failed(session, user)
@@ -366,7 +406,7 @@ async def change_password(
     body: PasswordChange, user: CurrentUser, current: CurrentSession, session: Session
 ) -> None:
     """Change the password (S7). Every other browser is signed out."""
-    await _check_password(session, user, body.current_password)
+    await check_password(session, user, body.current_password)
     _new_password(body.new_password)
     user.password_hash = await passwords.hash_password(body.new_password)
     user.password_changed_at = sessions.now()
@@ -406,7 +446,7 @@ async def two_step_confirm(body: Code, user: CurrentUser, session: Session) -> R
 
 @router.post("/two-step/off", status_code=204)
 async def two_step_off(body: Password, user: CurrentUser, session: Session) -> None:
-    await _check_password(session, user, body.password)
+    await check_password(session, user, body.password)
     user.totp_secret = None
     user.totp_pending_secret = None
     user.totp_last_step = None
@@ -417,10 +457,170 @@ async def two_step_off(body: Password, user: CurrentUser, session: Session) -> N
 @router.post("/two-step/recovery-codes", response_model=RecoveryCodes)
 async def new_recovery_codes(body: Password, user: CurrentUser, session: Session) -> RecoveryCodes:
     """New recovery codes; the old ones stop working."""
-    await _check_password(session, user, body.password)
+    await check_password(session, user, body.password)
     if user.totp_secret is None:
         raise ApiError(409, "two_step_off", "Two-step sign-in is off")
     codes = totp.new_recovery_codes()
     user.recovery_codes = [totp.recovery_hash(c) for c in codes]
     await session.commit()
     return RecoveryCodes(recovery_codes=codes)
+
+
+# Sign in with Google (S16) ---------------------------------------------------------------
+
+
+def _google_on() -> None:
+    """Without the three GOOGLE_ settings there is no such feature: Not Found, not an
+    error, so a JAP without it looks like a JAP that never had it."""
+    if not get_settings().google_ready:
+        raise ApiError(404, "not_found", "Not Found")
+
+
+def _back(outcome: str) -> RedirectResponse:
+    """The browser comes back from Google to an API route, so every ending is a redirect to
+    the UI. The UI reads ?google= and says what happened."""
+    ui = get_settings().jap_ui_url.rstrip("/")
+    return RedirectResponse(f"{ui}/?google={outcome}", status_code=303)
+
+
+@router.get("/google/start")
+async def google_start() -> RedirectResponse:
+    """Off to Google. The state, nonce and PKCE verifier go in one HttpOnly cookie and
+    nowhere else, so a callback that cannot show them did not start here."""
+    _google_on()
+    state, nonce, verifier = (oidc.new_verifier() for _ in range(3))
+    response = RedirectResponse(await oidc.start_url(state, nonce, verifier), status_code=303)
+    settings = get_settings()
+    response.set_cookie(
+        sessions.cookie_name(sessions.OAUTH),
+        f"{state}.{nonce}.{verifier}",
+        max_age=oidc.START_SECONDS,
+        path="/",
+        secure=settings.jap_cookie_secure,
+        httponly=True,
+        # lax, not strict: coming back from Google is a cross-site navigation, and strict
+        # would withhold the cookie, so every sign-in would fail its own state check.
+        samesite="lax",
+    )
+    return response
+
+
+async def _google_user(
+    session: AsyncSession, who: oidc.Identity, signed_in: AppUser | None
+) -> AppUser:
+    """The account this Google identity signs in as: the one already linked, the one being
+    linked now, or a new one."""
+    linked = await session.scalar(
+        select(UserIdentity).where(
+            UserIdentity.provider == "google", UserIdentity.subject == who.subject
+        )
+    )
+    if linked is not None:
+        if signed_in is not None and linked.user_id != signed_in.id:
+            raise ApiError(409, "google_taken", "That Google account is on another JAP account")
+        linked.email = who.email  # what they said this time; never looked up by
+        user = await session.get(AppUser, linked.user_id)
+        if user is None:
+            raise ApiError(403, "account_off", ACCOUNT_OFF)
+        return user
+    if signed_in is not None:  # Connect, from Settings: they already proved this account
+        session.add(
+            UserIdentity(
+                user_id=signed_in.id, provider="google", subject=who.subject, email=who.email
+            )
+        )
+        return signed_in
+    existing = await _by_email(session, who.email)
+    if existing is not None:
+        # Linking on the address alone would hand the account to anyone who can make a
+        # Google account carrying it, so Google has to vouch for the address first.
+        if not who.email_verified:
+            raise ApiError(
+                403,
+                "email_unverified",
+                "Sign in with your password and connect Google from Settings",
+            )
+        session.add(
+            UserIdentity(
+                user_id=existing.id, provider="google", subject=who.subject, email=who.email
+            )
+        )
+        return existing
+    first = not await accounts.any_account(session)
+    if not first and await accounts.sign_up_paused(session):
+        raise ApiError(403, "sign_up_closed", SIGN_UP_CLOSED)
+    # A new account with no password at all: Google is how it signs in (S16). It is not
+    # asked for the terms here, having no session to be asked in, so it is made without
+    # them and meets the same agreement screen every account does on its next request
+    # (auth/deps.py: agreed_user), which it cannot get past without ticking.
+    user = AppUser(
+        email=who.email, password_hash="", is_admin=first, email_verified_at=sessions.now()
+    )
+    session.add(user)
+    await session.flush()
+    session.add(
+        UserIdentity(user_id=user.id, provider="google", subject=who.subject, email=who.email)
+    )
+    await accounts.start_workspace(session, user)
+    return user
+
+
+@router.get("/google/callback")
+async def google_callback(
+    request: Request, response: Response, session: Session, code: str = "", state: str = ""
+) -> RedirectResponse:
+    """Back from Google: check the handshake, swap the code, then sign in, link or create."""
+    _google_on()
+    await limits.check(session, request, "google", None)
+    cookie = request.cookies.get(sessions.cookie_name(sessions.OAUTH), "")
+    parts = cookie.split(".")
+    if not code or len(parts) != 3 or not secrets.compare_digest(parts[0], state):
+        return _back("expired")  # not ours, or they sat on Google's page too long
+    _, nonce, verifier = parts
+    row = await sessions.find(session, request, sessions.SIGNED_IN)
+    signed_in = await session.get(AppUser, row.user_id) if row else None
+    try:
+        who = await oidc.exchange(code, verifier, nonce)
+    except oidc.OidcError as exc:
+        log.warning("Google sign-in refused: %s", exc)
+        return _back("failed")
+    try:
+        user = await _google_user(session, who, signed_in)
+    except ApiError as exc:
+        await session.rollback()
+        return _back(exc.code)
+    if user.disabled_at is not None:
+        await session.rollback()
+        return _back("account_off")
+    if signed_in is None:
+        user.last_sign_in_at = sessions.now()
+        await sessions.start(session, user, sessions.SIGNED_IN, request, response)
+    await session.commit()
+    out = _back("connected" if signed_in is not None else "signed_in")
+    for header, value in response.raw_headers:  # the session cookie sessions.start just set
+        if header.lower() == b"set-cookie":
+            out.raw_headers.append((header, value))
+    out.delete_cookie(
+        sessions.cookie_name(sessions.OAUTH),
+        path="/",
+        secure=get_settings().jap_cookie_secure,
+        httponly=True,
+        samesite="lax",
+    )
+    return out
+
+
+@router.post("/google/disconnect", response_model=UserOut)
+async def google_disconnect(user: CurrentUser, session: Session) -> UserOut:
+    """Stop signing in with Google. Refused while there is no password to sign in with
+    instead, which would lock the account out of itself."""
+    _google_on()
+    if not user.password_hash:
+        raise ApiError(409, "no_password", "Set a password first, or you could not sign in again")
+    await session.execute(
+        delete(UserIdentity).where(
+            UserIdentity.user_id == user.id, UserIdentity.provider == "google"
+        )
+    )
+    await session.commit()
+    return await user_out(session, user)

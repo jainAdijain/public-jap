@@ -1,14 +1,18 @@
-"""Creating runs (T4): a run row exists before its event is sent, and repeats collapse.
+"""Creating runs (T4, T6): a run row exists before its event is sent, and repeats collapse.
 
 The one_queued_run index allows each user a single queued run. A trigger that finds one
-reuses it instead of adding another, widening its scope to cover both asks; run-pipeline's
-concurrency of 1 makes it wait for the active run, whoever's that is: searches still take
-turns across the service.
+reuses it instead of adding another, widening its scope to cover both asks.
+
+**Searches go side by side, one per user.** Two people searching at the same time both
+start; one person's second search waits for their first. run-pipeline carries that as two
+concurrency entries, keyed on the event's user_id and capped service-wide by
+JAP_MAX_PARALLEL_RUNS (functions/run_pipeline.py). Until v0.20.0 there was a single limit
+of 1 and everybody queued behind whoever searched first.
 
 Inngest's concurrency limit counts executing steps, not runs: a run waiting on its board
-fetches does not hold the slot, so a queued run's first step could start beside it. So a
-run claims its turn itself (start_run returns None while another run is going) and keeps
-waiting as queued, which also keeps it the run that later triggers join.
+fetches does not hold the slot, so a second run of the same user could start beside it. So
+a run claims its turn itself — start_run returns None while *that user's* other run is
+going — and keeps waiting as queued, which also keeps it the run that later triggers join.
 
 A scope (the Run dialog, T3) narrows a run to some boards and some roles. A board is
 always fetched and stored whole, because its postings are shared and another follower may
@@ -88,8 +92,10 @@ async def queue_run(
 
 async def start_run(session: AsyncSession, run_id: uuid.UUID) -> list[dict[str, Any]] | None:
     """Mark the run running and list the boards it fetches: the ones its user follows (I8).
-    None while another run is going, anyone's: this one stays queued and tries again (T4).
-    Run as the service, which is what lets it see the other users' runs."""
+    None while *this user's* other run is going: that one stays queued and tries again
+    (T4, T6). Somebody else searching at the same time does not hold it up; the ceiling on
+    how many do at once is Inngest's (JAP_MAX_PARALLEL_RUNS). Run as the service, which is
+    what lets it read the run row before the user is known."""
     run = await session.get(Run, run_id, with_for_update=True)
     if run is None:
         raise LookupError(f"run {run_id} not found")
@@ -103,6 +109,7 @@ async def start_run(session: AsyncSession, run_id: uuid.UUID) -> list[dict[str, 
         other = await session.scalar(
             select(Run.id).where(
                 Run.status == "running",
+                Run.user_id == run.user_id,  # T6: only my own search holds mine up
                 Run.id != run_id,
                 Run.started_at > datetime.now(UTC) - STALE_RUN,
             )

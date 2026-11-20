@@ -19,14 +19,20 @@ from database.models import AppUser, AuthSession
 
 SIGNED_IN = "signed_in"
 TWO_STEP = "two_step"
+# Not a session: the few minutes between leaving for Google and coming back (S16). It
+# carries the state, nonce and PKCE verifier, and nothing of them is in the database.
+OAUTH = "oauth"
 TWO_STEP_MINUTES = 5
 TWO_STEP_TRIES = 5
 TOUCH_EVERY = timedelta(minutes=1)
 
 
+COOKIE_BASE = {SIGNED_IN: "jap_session", TWO_STEP: "jap_two_step", OAUTH: "jap_oauth"}
+
+
 def cookie_name(stage: str) -> str:
     # __Host- makes the browser insist on Secure, path / and no Domain: one hostname only.
-    base = "jap_session" if stage == SIGNED_IN else "jap_two_step"
+    base = COOKIE_BASE[stage]
     return f"__Host-{base}" if get_settings().jap_cookie_secure else base
 
 

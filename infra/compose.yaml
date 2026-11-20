@@ -47,6 +47,11 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-jap}:${POSTGRES_PASSWORD:-jap}@db:5432/${POSTGRES_DB:-jap}
       INNGEST_DEV: "1"
       INNGEST_BASE_URL: http://inngest:8288
+      # Any non-empty value: the dev server takes whatever key it is given. Without one the
+      # SDK (0.5.20) posts to /e/ with an empty key, the dev server answers 303 with an empty
+      # body, and the SDK's resp.json() raises — so every route that sends an event answers
+      # 503 inngest_unreachable. The live overlay sets a real key over this.
+      INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY:-dev}
       # The URL Inngest calls back, even when a sync is started from the Mac's browser.
       INNGEST_SERVE_ORIGIN: http://app:8000
       JAP_SEED_DIR: /seed

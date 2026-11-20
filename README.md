@@ -1,6 +1,7 @@
 # JAP: Job Application Pipeline
 
-**Version 0.19.0 (each user's own data, open sign-up), 17 Nov 2026.**
+**Version 0.20.0 (consent, your data back or gone, searches side by side, Google sign-in),
+20 Nov 2026.**
 
 JAP watches the public job boards of the companies you pick (Greenhouse, Lever and Ashby),
 lists the jobs that match your profile, and prepares or submits applications for you to review.
@@ -44,9 +45,11 @@ The UI follows the [redesign mockup v0.5](https://claude.ai/artifact/5V2SRvBgWZu
   hide a job but give each one a skills match.
 - **Insights**: jobs found and sent per week, results by job site, and AI spend (PRD 1.19).
 - **Settings**: applying (JAP prepares, I send; or JAP applies for me, with a daily limit
-  and a required-skills bar),
-  the daily search, Search history, AI usage, System status (backup and form check) and
-  Health (Daily search, stuck searches, errors, slow pages, disk, alerts sent).
+  and a required-skills bar) and what you have agreed JAP may do in your name, the daily
+  search and the time zone it runs in, Search history, AI usage, Your plan, Account
+  (password, two-step sign-in, Google, the privacy notice, Download my data, Delete my
+  account), System status (backup and form check) and Health (Daily search, stuck
+  searches, errors, slow pages, disk, alerts sent).
 
 Older names in this README map to the screen as follows: Not applied is **New**, Needs input
 is **Needs you**, Ready for review is **Ready to send**, Approve and submit is **Send
@@ -129,6 +132,16 @@ screens) runs as the service (`backend/database/tenant.py`, migration `0013_rls`
 - **Forgot password** emails a single-use link, good for 30 minutes, from the mailbox in
   `.env` to the account's address. It links to `JAP_UI_URL`, so set that to the address
   you open JAP at. Without a mailbox, use `make set-password EMAIL=...`.
+- **Sign in with Google** (PRD S16), beside the password, when `GOOGLE_CLIENT_ID`,
+  `GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URL` are set; all three empty and the button
+  is not shown and the routes answer Not Found, so a fresh clone needs nothing from Google.
+  OpenID Connect with PKCE: JAP fetches the token itself over TLS and checks its issuer,
+  audience, expiry and nonce. An address that already has an account is joined up **only
+  when Google says it is verified** — otherwise sign in with the password and connect from
+  Settings > Account, because anyone can make a Google account carrying an address they do
+  not own. An account created through Google has no password and still has to agree to the
+  notice before it can do anything. Disconnecting is refused while Google is the only way
+  in; set a password first.
 - **Two-step sign-in** (Settings > Account): scan the QR code with an authenticator app,
   enter one code, and save the 8 recovery codes. Lost both? `make two-step-off EMAIL=...`.
 - **Sessions** live in an HttpOnly cookie tied to the hostname. They end after 7 days unused or
@@ -136,6 +149,63 @@ screens) runs as the service (`backend/database/tenant.py`, migration `0013_rls`
 - **Internal endpoints.** `/api/inngest` answers only direct calls from inside Docker, never
   a request carrying proxy headers (`X-Forwarded-For`, `Forwarded`, `Cf-Connecting-Ip`), and
   a write that comes from another site's page is refused.
+
+## What you agree to
+
+JAP holds a person's name, address, phone, resume and the answers they give to employers,
+sends job and resume text to a model with the contact details taken out, and presses Submit
+on a form in their name. Each of those is said plainly and agreed to before it happens
+(PRD S14). Three separate agreements, because they are three different things:
+
+| What | Asked where | Without it |
+| --- | --- | --- |
+| The terms and the privacy notice | The tick on sign-up | No `/api` route but health and `/api/auth/*` answers: the app shows the agreement screen and nothing else |
+| JAP may apply in my name | The first time you press Apply | Nothing is prepared and nothing is sent; Apply says so and a run picks nothing |
+| JAP may do that without asking first | Turning on "JAP applies for me" in Settings | Automatic mode cannot be turned on |
+
+- **The notice** is readable before you create an account (from the tick), from the
+  agreement screen and from Settings > Account at any time. It says what JAP stores, what it
+  is used for, what goes to an AI model, what applying in your name means, and who can see
+  it. The wording is a draft and says so at the top.
+- **The version is kept, not just the date.** `TERMS_VERSION` in `backend/auth/consent.py`
+  is the date the notice last changed, and an account is agreed only while its stored
+  version matches. Raising it asks everyone again, so it changes when what the notice *says*
+  changes, not when its wording is tidied. Accounts that existed before the notice are
+  asked once on their next visit: the migration backfills nothing, because a consent written
+  by a migration is one nobody gave.
+- **Taking it back.** Settings > Applying shows what you have agreed to, with Take that
+  back. Taking back "JAP may apply for me" takes "without asking" with it and puts the
+  account back in Review mode: the narrower permission cannot outlive the wider one. Nothing
+  further is sent after that, including an application already approved and waiting — Submit
+  reads the opt-in again at the last moment, and fails the attempt rather than sending it.
+  Applications already sent cannot be unsent.
+
+## Your data, back or gone
+
+Both are in **Settings > Account** (PRD S15), and both work even for an account that has
+*not* agreed to the current notice — otherwise refusing it would leave a person with no way
+out, and the agreement screen offers them too.
+
+- **Download my data** is a zip: `profile.json`, `resumes.json`, `answers.json`,
+  `applications.json`, `searches.json`, `companies-followed.json`, `jobs.json`,
+  `ai-spend.json`, every file those rows point at under `files/`, and a `README.txt` saying
+  what each one is. One file per private table, so a table added later cannot be left out
+  of it (a test walks `tenant.PRIVATE_TABLES` and fails otherwise). Jobs, companies and
+  postings are shared facts about the job market, so only your side of them is in it.
+- **Delete my account** asks for your password, your two-step code when that is on, and
+  your own address typed out. Then it is gone at once: every private row, the files with
+  it, no grace period and no undo. The address can sign up again afterwards and starts
+  empty. The admin's account cannot be deleted, and the admin can delete anyone else's for
+  a user who asks by email.
+- Deleting an Applied application is normally refused outright (A2). Erasure is the single
+  exception, through a flag set with `SET LOCAL` inside that one transaction (migration
+  `0016_erasure`); every other statement still meets the rule.
+- Two things outlive a deletion, and the notice says so: `llm_call` rows keep what each AI
+  call cost with the `user_id` nulled and `billed_to` set to `deleted` (no name, no text —
+  it is what the OpenRouter bill is counted from), and `log_event` lines keep the service's
+  own record, also with the user nulled, already scrubbed and already deleted after 30 days.
+- A company nobody follows once you are gone is switched off and its postings closed, the
+  same as unfollowing it by hand.
 
 ## Personal data and models
 
@@ -242,18 +312,29 @@ job in Berlin. Runs skip demo boards; `make demo-clear` removes them.
 ## What starts a run
 
 Four things start a run. A run is one account's: it fetches the companies that account
-follows and applies with its settings. Only one run is active at a time across the whole
-service, so runs take turns. A trigger that fires during a run queues one run behind it for
-that account; more triggers join that queued run instead of adding another (a role-scoped
-ask widens the queued run's scope).
+follows and applies with its settings.
+
+**Searches go side by side, one per account** (PRD T6). Two people searching at the same
+time both start; your own second search waits for your first. `JAP_MAX_PARALLEL_RUNS` (3)
+is the ceiling on how many different accounts search at once, and the rest wait their turn.
+A trigger that fires during your run queues one run behind it for you; more triggers join
+that queued run instead of adding another (a role-scoped ask widens the queued run's scope).
+
+A company is shared, so a board fetched for one account within `JAP_BOARD_FRESH_MINUTES`
+(10) is not fetched again for the next: the second search reuses it and the run counts it
+under `boards_fresh`. The reading is not skipped with it — who wants a job title is worked
+out at fetch time, so an account that followed the company since, or that has just added a
+target role, still gets its descriptions read.
 
 - **Find new jobs** on Jobs: every company you follow. The arrow beside it searches for only
   some job titles and can also apply to the new jobs that fit (see Applying). The companies
   are still fetched whole, because their jobs are shared with anyone else who follows them;
   the titles narrow what the run applies for.
-- **Daily search**: the switch in Settings, at 06:00 in `JAP_TZ` unless you change the time
-  next to it. An Inngest cron ticks every minute and fires once per day in the first five
-  minutes after that time, so a run missed while the Mac sleeps is skipped, not caught up.
+- **Daily search**: the switch in Settings, at 06:00 unless you change the time next to it,
+  **in your own time zone** — the select beside the time (PRD U22). Server time zone means
+  `JAP_TZ`, which is what every account used before it could say. An Inngest cron ticks
+  every minute and fires once per day in the first five minutes after that time, so a run
+  missed while the Mac sleeps is skipped, not caught up.
 - **Job preferences saved**: the stored listings are re-filtered at once, then a fetch follows
   in the background; new matching jobs appear on Jobs without a reload. Saving only contact
   details or the cover letter style on Profile starts no search.
@@ -269,7 +350,9 @@ or the AI limit was reached, and red with **Try again** when the search failed.
 ## Applying (Review mode)
 
 Open a job and press **Apply** (or tick several rows and press Apply), or tick **Also apply to
-the new jobs that fit** under the arrow beside Find new jobs to prepare every New job (up to your daily cap, 20 by default). JAP freezes the job description,
+the new jobs that fit** under the arrow beside Find new jobs to prepare every New job (up to your daily cap, 20 by default). The first
+Apply asks you to agree to JAP applying in your name, once ([What you agree
+to](#what-you-agree-to)). JAP freezes the job description,
 opens the posting's public form in a headless Chromium (Playwright), lists every field and
 whether it is required, and fills it:
 
@@ -303,7 +386,9 @@ reposts it (a repost joins the same listing). **Skip** cancels a prepared or wai
 
 ## Automatic mode
 
-The **Review | Automatic** switch on the Runs card sets the Apply mode (A4). In Automatic mode
+The **Review | Automatic** switch on the Runs card sets the Apply mode (A4). Turning it on
+asks for its own agreement, because sending without showing you first is a different thing
+to agree to ([What you agree to](#what-you-agree-to)). In Automatic mode
 a job is submitted without asking you once its form is filled, unless something about it is
 unclear (A3):
 
@@ -571,6 +656,7 @@ AGENTS.md           the rules for coding agents; CLAUDE.md, .devin/, .claude/, .
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.20.0 | 20 Nov 2026 | Consent, your data back or gone, searches side by side and Google sign-in (PRD S14, S15, S16, T6, U22). **Consent** (`0015_consent`): the terms and privacy notice are ticked at sign-up and the version ticked is kept, so raising `TERMS_VERSION` asks everyone again; accounts from before are asked once on their next visit, because a consent written by a migration is one nobody gave. Every `/api` route but health and `/api/auth` now carries that tick, not only the screen. An opt-in before JAP applies in your name and a second before it does so without asking; taking the first back takes the second with it and returns the account to Review mode, and Submit reads it again at the last moment, so an attempt approved before it was withdrawn fails instead of being sent. **Your data** (`0016_erasure`): Download my data gives a zip of every private table plus the files, and Delete my account removes all of it at once, with no undo; both work even for an account that will not agree to the notice, or the gate would be a trap. `llm_call` and `log_event` outlive it with the user nulled, holding no personal content. Deleting an Applied application is still refused everywhere except inside the erasure transaction. **Searches side by side** (T6): `run-pipeline` takes a concurrency keyed on `user_id` under a `JAP_MAX_PARALLEL_RUNS` ceiling, so two people search at once and only your own search holds yours up; a board fetched within `JAP_BOARD_FRESH_MINUTES` is reused rather than fetched again, while still reading descriptions nobody had asked for yet. **Time zone** (U22): the daily search runs in each account's own zone, set beside the time in Settings. **Google sign-in** (`0017_user_identity`): OpenID Connect with PKCE beside the password, linking to an account that already exists only when Google says the address is verified, Connect and Disconnect in Settings, and the button hidden unless the `GOOGLE_` settings are filled in |
 | 0.19.0 | 17 Nov 2026 | Each user's own data and open sign-up (PRD 1.18 step 2: S7, S10, S12, S13). Facts about jobs stay shared and everything about a person is private: every private table carries a `user_id`, and `board_follow` and `user_listing` hold the personal half of what sat on shared rows (migration `0011_tenancy`; existing data goes to the admin). Every route and background job works for one user and another user's id answers Not Found; Postgres repeats the check with row-level security (`0013_rls`). A company two people follow is fetched once and each description is read by the AI once; a role-scoped search stores the whole board, reading a posting uses no profile details, and Merge and Not the same job are the admin's. Anyone can create an account and confirms the address by an emailed link (`0012_email_verify`), with limits per address and per email and optional Cloudflare Turnstile. The free plan is 1 company, 1 application a day and $1 of AI a month, shown in Settings as Your plan; the admin can set any one account's own limits (`0014_account_limits`), turn an account off and pause sign-up from Settings > Accounts. Reading shared descriptions has the service's own budget and a total limit spans everything. System status, Health, backups, form tests and duplicates are the admin's. Files are written under `data/users/<user id>/` |
 | 0.18.1 | 13 Nov 2026 | Fix the four settings you type rather than tick saving only when the field lost focus (JAP-6). Settings says changes save straight away, and every radio and switch does, but "Send at most N applications a day", "Only jobs with at least N% of my required skills", the daily search time and the monthly AI limit waited for a click somewhere else: Enter did nothing at all and there was no button, so a typed number looked ignored. Enter saves now, so does a Save button that appears beside the field as soon as the value differs from the saved one, Escape forgets the edit, and leaving the field still saves so nothing typed is lost. What was typed stays on screen until the save comes back, instead of showing the old value again in between |
 | 0.18.0 | 13 Nov 2026 | Skills match instead of a skills filter (PRD 1.21, F5, F6, U15, U17, U18). Skills never hide a job: the Skills condition and the third Matching choice are gone, so matching is job title and location only, and the default rule is job title and location everywhere (the code fallback and the API default used to be any one of title, skills or location). Every job gets a skills match in the same SQL pass as the filters (migration `0010_skills_match`: `listing.required_hit`, `nice_hit`, `required_pct`): Required x of y with the percentage and the missing skills, Nice to have x of y, and Skills not stated when the description gave none, which is unknown and never 0. Jobs has a Skills match column that sorts, and a minimum filter (`sort=skills`, `min_skills`); the job panel lists the skills behind it. Automatic mode picks only jobs at or above a required-skills bar, 60% by default, set on Settings (`profile.auto_apply_min_skills`); the rest stay listed. A rule saved earlier with skills keeps its other conditions. |

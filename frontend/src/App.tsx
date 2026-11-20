@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { auth, SIGNED_OUT_EVENT, type AuthState, type User } from './api/client'
+import { auth, NEEDS_TERMS_EVENT, SIGNED_OUT_EVENT, type AuthState, type User } from './api/client'
 import { AuthCtx, useAuth } from './authContext'
+import { DeleteMyAccount, ExportMyData } from './components/YourData'
 import { ago, errorText, plural } from './format'
 import InsightsPage from './pages/InsightsPage'
 import JobsPage from './pages/JobsPage'
 import PreferencesPage from './pages/PreferencesPage'
+import PrivacyNotice from './pages/PrivacyPage'
 import ProfilePage from './pages/ProfilePage'
 import SettingsPage from './pages/SettingsPage'
-import SignInPage from './pages/SignInPage'
+import SignInPage, { TermsTick } from './pages/SignInPage'
+import { googleOutcome } from './query'
 import { needsAttention, searching, useApp } from './appContext'
 import { go, VIEWS, type View } from './nav'
 import { AppProvider } from './store'
@@ -39,8 +42,15 @@ function nextSearch(at: string): string {
 
 function Shell() {
   const [view, setView] = useState<View>(() => viewOf(window.location.hash))
-  const { profile, summary, runs, health, healthError, ops } = useApp()
+  const { profile, summary, runs, health, healthError, ops, toast } = useApp()
   const { user, signOut } = useAuth()
+  // Back from Google while already signed in: Connect, from Settings (S16). Its answer
+  // rides on ?google=, so it has to be read here or a refusal would pass unmentioned.
+  useEffect(() => {
+    const { problem, done } = googleOutcome()
+    if (problem) toast({ text: problem, bad: true })
+    else if (done === 'connected') toast('Google is connected to this account.')
+  }, [toast])
   useEffect(() => {
     const onHash = () => {
       setView(viewOf(window.location.hash))
@@ -73,7 +83,7 @@ function Shell() {
         <div className="logo">
           <span className="logo-mark">JAP</span>
           <span className="logo-name">
-            Job Application Pipeline<small>Version 0.19.0</small>
+            Job Application Pipeline<small>Version 0.20.0</small>
           </span>
           {health?.env && health.env !== 'prod' && (
             <span className={`env-badge env-${health.env}`} title={`This is the ${health.env} copy of JAP, not prod`}>
@@ -123,6 +133,78 @@ function Shell() {
   )
 }
 
+/**
+ * The agreement screen (PRD S14), for an account made before this notice or before there
+ * was one. New accounts tick the same box at sign-up, so this is only ever seen once.
+ */
+function TermsGate({ user, version, onAccepted, onSignOut }: { user: User; version: string; onAccepted: (u: User) => void; onSignOut: () => void }) {
+  const [agreed, setAgreed] = useState(false)
+  const [reading, setReading] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  if (reading) {
+    return (
+      <main className="auth">
+        <div className="auth-card wide">
+          <PrivacyNotice />
+          <button type="button" className="btn-primary auth-submit" onClick={() => setReading(false)}>
+            Back
+          </button>
+        </div>
+      </main>
+    )
+  }
+  return (
+    <main className="auth">
+      <div className="auth-card">
+        <h1>Before you carry on</h1>
+        <p className="muted">
+          JAP now says plainly what it stores about you, what it sends to an AI model, and what it does in your name. Nothing has changed about how it works; this is the first time it is written down.
+        </p>
+        <TermsTick checked={agreed} onChange={setAgreed} onRead={() => setReading(true)} />
+        {error && (
+          <p className="error-text small" role="alert">
+            {error}
+          </p>
+        )}
+        <button
+          type="button"
+          className="btn-primary auth-submit"
+          disabled={busy || !agreed}
+          onClick={() => {
+            setBusy(true)
+            setError(null)
+            auth
+              .acceptTerms(version)
+              .then(onAccepted)
+              .catch((err) => setError(errorText(err)))
+              .finally(() => setBusy(false))
+          }}
+        >
+          {busy ? 'One moment…' : 'Agree and carry on'}
+        </button>
+        <button type="button" className="btn-link" onClick={onSignOut}>
+          Sign out instead
+        </button>
+        <hr className="rule" />
+        {/* Not agreeing has to lead somewhere (S15), or the tick above is the only way out. */}
+        <p className="help">Don't want to agree? Your data is still yours to take or delete.</p>
+        {leaving ? (
+          <DeleteMyAccount user={user} onDeleted={() => window.location.replace('/')} />
+        ) : (
+          <div className="inline">
+            <ExportMyData onProblem={setError} />
+            <button type="button" className="btn-link btn-danger" onClick={() => setLeaving(true)}>
+              Delete my account
+            </button>
+          </div>
+        )}
+      </div>
+    </main>
+  )
+}
+
 /** Sign-in comes first (PRD S6): nothing else loads until there is a signed-in session. */
 export default function App() {
   const [state, setState] = useState<AuthState | null>(null)
@@ -143,6 +225,12 @@ export default function App() {
     window.addEventListener(SIGNED_OUT_EVENT, onSignedOut)
     return () => window.removeEventListener(SIGNED_OUT_EVENT, onSignedOut)
   }, [])
+  // The API refuses a notice that has changed under an open tab (S14): read the state
+  // again, which brings back the current version and sends this browser to the tick.
+  useEffect(() => {
+    window.addEventListener(NEEDS_TERMS_EVENT, load)
+    return () => window.removeEventListener(NEEDS_TERMS_EVENT, load)
+  }, [load])
   const setUser = useCallback((user: User) => setState((s) => (s ? { ...s, user, has_accounts: true } : s)), [])
   const signOut = useCallback(async (everywhere = false) => {
     await (everywhere ? auth.signOutEverywhere() : auth.signOut()).catch(() => undefined)
@@ -164,8 +252,10 @@ export default function App() {
   }
   if (!state) return null
   if (!state.user) return <SignInPage state={state} onSignedIn={setUser} />
+  if (!state.user.terms_accepted)
+    return <TermsGate user={state.user} version={state.terms_version} onAccepted={setUser} onSignOut={() => void signOut()} />
   return (
-    <AuthCtx.Provider value={{ user: state.user, setUser, signOut }}>
+    <AuthCtx.Provider value={{ user: state.user, setUser, signOut, google: state.google }}>
       <AppProvider>
         <Shell />
       </AppProvider>

@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import api.health as health_module
+from config import get_settings
 from main import app
 from schemas.health import Check
 
@@ -48,8 +49,10 @@ def test_health_reports_ollama_down(client: TestClient, monkeypatch: pytest.Monk
 
 
 def test_cors_allows_only_ui_origin(client: TestClient) -> None:
-    allowed = client.get("/api/health", headers={"Origin": "http://localhost:5173"})
-    assert allowed.headers.get("access-control-allow-origin") == "http://localhost:5173"
+    # This stack's own UI, whichever port it is on: a worktree is not 5173.
+    ui = get_settings().cors_origins[0]
+    allowed = client.get("/api/health", headers={"Origin": ui})
+    assert allowed.headers.get("access-control-allow-origin") == ui
     other = client.get("/api/health", headers={"Origin": "http://evil.example"})
     assert "access-control-allow-origin" not in other.headers
 
