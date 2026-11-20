@@ -2,7 +2,6 @@
 .env
 .env.*
 !.env.example
-!.env.tunnel.example
 
 # Runtime data (resumes, screenshots, cover letters, backups). data/ is the local stack's,
 # data-live/ is the live stack's (JAP_DATA_HOST_DIR).

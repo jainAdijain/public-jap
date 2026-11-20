@@ -1,14 +1,17 @@
 # JAP: one command per job. Run `make help` for the list.
 #
 # Every target takes ENV=local|live (PRD H7); local is the default, so `make start` works as
-# before. Both run from this one checkout and share nothing else: their own env file, Docker
-# project, database volume, data folder and ports.
+# before. The two share nothing: their own env file, Docker project, database volume, data
+# folder and ports.
 #
 #   local  .env       this working copy with live reload, never submits, not on the internet
-#   live   .env.live  the built image behind the tunnel at jap.tutorial.monster, submits
+#   live   .env.live  the server at jap.tutorial.monster: submits, sends email, holds other
+#                     people's data
 #
-# live adds infra/compose.release.yaml, which mounts no source: its code is baked into the
-# image, so editing a file changes nothing until the next `make start ENV=live`.
+# local runs on your Mac. **live runs on the server and nowhere else** (README, Hosting):
+# it builds nothing, it runs the images GitHub Actions pushed for a version tag, and those
+# are linux/amd64, so a laptop cannot start it even by accident. On the server a release is
+# `make deploy TAG=vX.Y.Z`, which checks out the tag and pulls the images it names.
 ENV ?= local
 ifeq ($(ENV),local)
 ENV_FILE := .env
@@ -28,16 +31,22 @@ JAP_INNGEST_PORT ?= 8290
 JAP_ADMINER_PORT ?= 8080
 JAP_DATA_HOST_DIR ?= data
 HEALTH_URL = http://127.0.0.1:$(JAP_API_PORT)/api/health
-OLLAMA_URL ?= http://127.0.0.1:11434
-EMBED_MODEL ?= nomic-embed-text
 
-COMPOSE_FILES := -f infra/compose.yaml $(if $(filter 1 true,$(JAP_RELEASE)),-f infra/compose.release.yaml)
+# Is this the release stack (live)? Used to choose pull over build, and to refuse the things
+# that only make sense on the server.
+RELEASE := $(filter 1 true,$(JAP_RELEASE))
+
+# The images live runs are tagged with the git tag they were built from, so the tag that is
+# checked out decides which image starts and the two can never drift apart. Exported, because
+# compose reads it when it renders infra/compose.release.yaml; empty off a tag, which is what
+# makes `make start ENV=live` stop and ask for `make deploy TAG=...` instead.
+export JAP_IMAGE_TAG ?= $(shell git describe --tags --exact-match 2>/dev/null)
+
+COMPOSE_FILES := -f infra/compose.yaml $(if $(RELEASE),-f infra/compose.release.yaml)
 COMPOSE := docker compose -p $(JAP_PROJECT) --env-file $(ENV_FILE) $(COMPOSE_FILES)
-TUNNEL_ENV := infra/tunnel/.env.tunnel
-TUNNEL := docker compose --env-file $(TUNNEL_ENV) -f infra/tunnel/compose.yaml
 
 .DEFAULT_GOAL := help
-.PHONY: help env tunnel-start tunnel-stop tunnel-status mac-wake start stop restart reset clean logs ps migrate seed test test-app test-ui test-agents test-host setup-host hooks worktree worktree-list worktree-remove qa backup restore close-unfollowed form-check health-check errors two-step-off sign-out-all set-password email-test code-mail-check ollama-check llm-check demo demo-clear
+.PHONY: help env deploy tunnel-status start stop restart reset clean logs ps migrate seed test test-app test-ui test-agents test-host setup-host hooks worktree worktree-list worktree-remove qa backup backup-pull restore close-unfollowed form-check health-check errors two-step-off sign-out-all set-password email-test code-mail-check ollama-check llm-check demo demo-clear
 
 help: ## List the targets
 	@grep -hE '^[a-z-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-13s %s\n", $$1, $$2}'
@@ -50,11 +59,18 @@ else
 endif
 
 start: env ## Start the stack, wait for /api/health, apply migrations
+ifneq ($(RELEASE),)
+	@test "$$(uname)" != Darwin || { echo "live runs on the server, not this Mac (README, Hosting). Its images are linux/amd64 and it holds other people's data."; exit 1; }
+	@test -n "$(JAP_IMAGE_TAG)" || { echo "No version tag is checked out, so there is no image to run. Release with: make deploy ENV=live TAG=vX.Y.Z"; exit 1; }
+	$(COMPOSE) pull
+	$(COMPOSE) up -d
+else
 	$(COMPOSE) up -d --build
+endif
 	@infra/scripts/wait-for-health.sh $(HEALTH_URL)
 	@$(MAKE) --no-print-directory migrate
 	@$(MAKE) --no-print-directory ollama-check
-	@echo "$(ENV): UI http://localhost:$(JAP_UI_PORT)  API http://localhost:$(JAP_API_PORT)  Inngest http://localhost:$(JAP_INNGEST_PORT)$(if $(filter 1 true,$(JAP_RELEASE)),,  Adminer http://localhost:$(JAP_ADMINER_PORT))"
+	@echo "$(ENV): UI http://localhost:$(JAP_UI_PORT)  API http://localhost:$(JAP_API_PORT)  Inngest http://localhost:$(JAP_INNGEST_PORT)$(if $(RELEASE),,  Adminer http://localhost:$(JAP_ADMINER_PORT))"
 
 stop: ## Stop the stack (data is kept)
 	$(COMPOSE) down
@@ -97,8 +113,22 @@ demo-clear: ## Remove the demo postings, listings and boards
 
 test: test-app test-ui test-agents ## ruff, mypy and pytest for app; lint and build for ui; agent guards
 
+# The tests run against known settings, not whatever this stack happens to use:
+#   JAP_ROLE=all     the app container is the API half and does not mount /api/inngest; the
+#                    suite checks the whole app, and tests/test_hosting.py builds one of
+#                    each half to check the split itself
+#   the UI address   a worktree's stack is on a port of its own (5503, 5603, ...), and the
+#                    tests assert on the default, as a reset link and an allowed origin
+#                    should not depend on which port a developer was given
+#   submitting on    the apply tests fill and submit forms that are local fakes, and the
+#                    switch is what they are testing; a worktree's stack has it off so the
+#                    stack can never submit, and that must not disable the tests of it.
+#                    Only this process sees it: the running app container keeps its own.
+TEST_ENV := -e JAP_ROLE=all -e JAP_UI_URL=http://localhost:5173 \
+	-e CORS_ORIGINS='["http://localhost:5173"]' -e JAP_SUBMIT_ENABLED=true
+
 test-app:
-	$(COMPOSE) exec app sh -c 'ruff check . && ruff format --check . && mypy . && pytest -q'
+	$(COMPOSE) exec $(TEST_ENV) app sh -c 'ruff check . && ruff format --check . && mypy . && pytest -q'
 
 test-ui:
 	$(COMPOSE) exec ui sh -c 'npm run lint && npm run build'
@@ -138,6 +168,9 @@ qa: ## Dedup QA set: place ~100 labelled job pairs and print the accuracy
 
 backup: ## Dump the database to this environment's backups folder
 	@DATA_DIR="$(JAP_DATA_HOST_DIR)" COMPOSE="$(COMPOSE)" infra/scripts/backup.sh
+
+backup-pull: ## Copy the server's newest dump to this Mac: make backup-pull SERVER=jap
+	@infra/scripts/backup-pull.sh "$(SERVER)"
 
 restore: ## Restore a backup: make restore FILE=data/backups/<file>.sql.gz
 	@DATA_DIR="$(JAP_DATA_HOST_DIR)" COMPOSE="$(COMPOSE)" infra/scripts/restore.sh "$(FILE)"
@@ -179,32 +212,18 @@ code-mail-check: ## Log in to the mailbox over IMAP and count Greenhouse emails 
 llm-check: ## One test call to each OpenRouter model (needs OPENROUTER_API_KEY in .env)
 	$(COMPOSE) exec app python -m llm.check
 
-ollama-check: ## Check that Ollama answers on the Mac and has the embedder pulled
-	@tags=$$(mktemp); \
-	if ! curl -fsS --max-time 2 $(OLLAMA_URL)/api/tags > $$tags 2>/dev/null; then \
-		echo "WARNING: Ollama is not answering on $(OLLAMA_URL). Start it with: ollama serve (or open the Ollama app)"; \
-	elif ! grep -q '"$(EMBED_MODEL)' $$tags; then \
-		echo "WARNING: Ollama is running but $(EMBED_MODEL) is not pulled. Run: ollama pull $(EMBED_MODEL)"; \
-	else \
-		echo "Ollama OK ($(EMBED_MODEL) ready)"; \
-	fi; \
-	rm -f $$tags
+ollama-check: ## Check that Ollama answers with the embedder pulled, at the address the app uses
+	@$(COMPOSE) exec -T app python -m llm.ollama || true
 
 # ---- Hosting (PRD H1 to H8; README, Hosting) ----
+#
+# live is the server. The tunnel is part of its stack now, so `make start ENV=live` puts the
+# site on the internet and `make stop ENV=live` takes it off; there is no separate tunnel to
+# start. A release is `make deploy`.
 
-tunnel-start: ## Start JAP's Cloudflare Tunnel: live goes on the internet (PRD H6)
-	@test -f $(TUNNEL_ENV) || { echo "No $(TUNNEL_ENV). Copy infra/tunnel/.env.tunnel.example to it and paste the token."; exit 1; }
-	@printf 'This puts JAP on the internet at jap.tutorial.monster. Is the live stack up (make start ENV=live) with sign-in working? Type yes: '; \
-	read answer; [ "$$answer" = "yes" ] || { echo "Cancelled."; exit 1; }
-	$(TUNNEL) up -d
+deploy: ## On the server: check out a release tag and start it. make deploy ENV=live TAG=vX.Y.Z
+	@infra/scripts/deploy.sh "$(ENV)" "$(TAG)"
 
-tunnel-stop: ## Stop the tunnel: JAP is off the internet, the stacks keep running
-	-$(TUNNEL) down
-
-tunnel-status: ## Is the tunnel connected? (last log lines)
-	@$(TUNNEL) ps
-	@$(TUNNEL) logs --tail 5 2>/dev/null || true
-
-mac-wake: ## Wake the Mac at 05:55 every day for the 06:00 search (asks for your password)
-	sudo pmset repeat wakeorpoweron MTWRFSU 05:55:00
-	@pmset -g sched
+tunnel-status: ## Is the Cloudflare Tunnel connected? (last log lines)
+	@$(COMPOSE) ps cloudflared
+	@$(COMPOSE) logs --tail 5 cloudflared 2>/dev/null || true

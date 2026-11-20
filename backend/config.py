@@ -12,6 +12,12 @@ class Settings(BaseSettings):
 
     # Which environment this stack is (H3): dev, test or prod. The UI shows a DEV or TEST badge.
     jap_env: str = "dev"
+    # Which half of the app this process is (H2). The same image runs twice: `api` answers
+    # /api for the browser and never mounts the Inngest endpoint, `worker` runs the functions
+    # and the Playwright browser. `all` does both, which is what the tests and a bare
+    # `uvicorn main:app` want. Compose sets it per service, so .env's value is only the
+    # default for a process started by hand.
+    jap_role: str = "all"
     # Off in test (H4): an application is never submitted to a real job site from there.
     jap_submit_enabled: bool = True
 
@@ -91,8 +97,16 @@ class Settings(BaseSettings):
 
     jap_tz: str = "Asia/Kolkata"
 
-    # Resumes, screenshots, cover letters and backups (data/ on the Mac).
+    # Resumes, screenshots, cover letters and backups (data/ on the Mac, data-live/ on the
+    # server).
     jap_data_dir: str = "/data"
+    # How long the files an application leaves behind are kept (IDEA-14, pipeline/retention.py).
+    # A trace is megabytes and only useful while a recent failure is being looked into; a
+    # screenshot is small and is the only evidence of what was sent, so it stays much longer.
+    # 0 keeps them for ever. Resumes and cover letters have no retention: only deleting the
+    # account removes those.
+    jap_keep_traces_days: int = 30
+    jap_keep_screenshots_days: int = 180
 
     # Where the confirmation email links back to (the frozen JD in the side panel).
     jap_ui_url: str = "http://localhost:5173"

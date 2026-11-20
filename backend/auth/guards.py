@@ -2,8 +2,20 @@
 
 /api/inngest is how the Inngest server inside Docker runs JAP's functions. It answers only a
 direct call from a private address with no proxy headers, so nothing that came through the
-tunnel (or any other proxy) reaches it. A request that changes data must come from JAP's own
-pages: when it carries an Origin, that Origin must be one JAP serves.
+tunnel (or any other proxy) reaches it. On the server it is not even mounted in the process
+the browser talks to (main.py, JAP_ROLE), and Caddy answers it 404; this is the third lock.
+
+A request that changes data must come from JAP's own pages. Two headers say where a request
+came from and a browser sends at least one of them:
+
+- Origin, which must be an origin JAP serves;
+- Sec-Fetch-Site, which must say the request started on JAP's own site. Browsers send it on
+  every request, Origin only on some, so a form posted from another site that happens to
+  omit Origin is caught here (IDEA-13).
+
+Neither is required: a terminal with curl sends neither, and that is a request from the
+machine itself, not a page tricking a signed-in browser. What is refused is a header that
+is present and says somewhere else.
 """
 
 import ipaddress
@@ -17,6 +29,9 @@ from config import get_settings
 INNGEST_PATH = "/api/inngest"
 PROXY_HEADERS = ("x-forwarded-for", "forwarded", "cf-connecting-ip", "x-real-ip", "cf-ray")
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+# Sec-Fetch-Site values that mean "this started on JAP's own pages". "none" is the user
+# typing the address or using a bookmark, which no other site can cause.
+OWN_SITE = {"same-origin", "same-site", "none"}
 
 
 def _private(host: str | None) -> bool:
@@ -61,11 +76,11 @@ def install(app: FastAPI) -> None:
             request
         ):
             return _refuse(404, "not_found", "Not Found")
-        origin = request.headers.get("origin")
-        if (
-            request.method not in SAFE_METHODS
-            and origin is not None
-            and origin.rstrip("/") not in allowed_origins()
-        ):
-            return _refuse(403, "bad_origin", "This request did not come from JAP")
+        if request.method not in SAFE_METHODS:
+            origin = request.headers.get("origin")
+            if origin is not None and origin.rstrip("/") not in allowed_origins():
+                return _refuse(403, "bad_origin", "This request did not come from JAP")
+            site = request.headers.get("sec-fetch-site")
+            if site is not None and site.lower() not in OWN_SITE:
+                return _refuse(403, "bad_origin", "This request did not come from JAP")
         return await call_next(request)

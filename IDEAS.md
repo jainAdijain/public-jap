@@ -25,11 +25,11 @@ limits, is built on the `tenancy` branch and is not listed.
 | [IDEA-7](#idea-7--a-privacy-notice-at-sign-up) | 2 | Built (v0.20.0) | A privacy notice at sign-up |
 | [IDEA-8](#idea-8--a-your-plan-line-in-settings) | 1 follow-up | Built (v0.19.0) | A "Your plan" line in Settings |
 | [IDEA-9](#idea-9--invites) | - | Open | Invites |
-| [IDEA-10](#idea-10--an-always-on-server-instead-of-the-mac) | 3 | Open | An always-on server instead of the Mac |
+| [IDEA-10](#idea-10--an-always-on-server-instead-of-the-mac) | 3 | Built (v0.21.0) | An always-on server instead of the Mac |
 | [IDEA-11](#idea-11--encrypted-off-site-backups) | 3 | Open | Encrypted off-site backups |
-| [IDEA-12](#idea-12--no-adminer-and-no-user-content-for-the-admin-on-the-public-stack) | 3 | Open | No Adminer, and no user content for the admin, on the public stack |
-| [IDEA-13](#idea-13--request-hardening) | 3 | Open | Request hardening |
-| [IDEA-14](#idea-14--a-retention-period-for-traces-and-screenshots) | 3 | Open | A retention period for traces and screenshots |
+| [IDEA-12](#idea-12--no-adminer-and-no-user-content-for-the-admin-on-the-public-stack) | 3 | Built (v0.21.0) | No Adminer, and no user content for the admin, on the public stack |
+| [IDEA-13](#idea-13--request-hardening) | 3 | Built (v0.21.0) | Request hardening |
+| [IDEA-14](#idea-14--a-retention-period-for-traces-and-screenshots) | 3 | Built (v0.21.0) | A retention period for traces and screenshots |
 | [IDEA-15](#idea-15--applications-side-by-side-across-worker-machines) | 4 | Open | Applications side by side across worker machines |
 | [IDEA-16](#idea-16--a-security-code-address-for-each-user) | 4 | Open | A security-code address for each user |
 | [IDEA-17](#idea-17--pacing-for-submissions-across-all-users) | 4 | Open | Pacing for submissions across all users |
@@ -135,11 +135,26 @@ for files, Inngest Cloud.
 
 ## IDEA-11 — Encrypted off-site backups
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 3).
+**Status:** Open, and deliberately only part done in v0.21.0. Recorded 17 Nov 2026, from the
+public-jap plan (Phase 3).
 
 `pg_dump` encrypted to object storage on a documented schedule, and full-disk encryption on the
 server. Resume text and answers stay plaintext in the database because trigram matching needs
 them.
+
+What v0.21.0 actually does, which is not this: the hosting provider's own daily disk
+backups, the existing `daily-backup` dump inside them, and `make backup-pull` to copy the
+newest dump to the Mac. **The accepted risk** is that the first two live in the hosting
+account and are encrypted with the provider's key, not ours, and `backup-pull` leaves a
+plaintext dump on the Mac. Losing the hosting account loses the server and both copies that
+sit with it, and that database holds other people's resumes and answers. `backup-pull` is
+the only copy that survives it, so it has to actually be run.
+
+What is left for this idea: encrypt the dump with a key Aditya holds before it goes anywhere
+(`age` with a public key on the server and the private key off it is enough), put it
+somewhere that is not the hosting account, and decide whether full-disk encryption is worth
+it on a machine that must boot unattended — the key has to live on the box for that, so it
+protects against a stolen disk and very little else.
 
 ## IDEA-12 — No Adminer, and no user content for the admin, on the public stack
 

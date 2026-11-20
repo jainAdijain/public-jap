@@ -75,9 +75,11 @@ jobs:
       - run: cp .env.example .env
       - run: docker compose --env-file .env -f infra/compose.yaml config --quiet
       - name: release overlay (live) is valid
+        # env-create.sh leaves the secrets empty, as it does on the server; the three below
+        # are the ones compose refuses to render without, so the check supplies them.
         run: |
           infra/scripts/env-create.sh
           docker compose --env-file .env.live -f infra/compose.yaml -f infra/compose.release.yaml config --quiet
-      - run: docker compose --env-file infra/tunnel/.env.tunnel.example -f infra/tunnel/compose.yaml config --quiet
         env:
+          JAP_IMAGE_TAG: v0.0.0
           TUNNEL_TOKEN: placeholder

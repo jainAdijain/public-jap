@@ -95,7 +95,7 @@ application and never sends an alert email.
 ```
 Makefile            every job has one target; `make help` lists them
 infra/              compose.yaml (local), compose.release.yaml (live), docker/, caddy/,
-                    env/, tunnel/, postgres/init.sql, scripts/
+                    env/, postgres/init.sql, scripts/
 seed/               companies.yaml, skills.yaml
 backend/            main.py, config.py, api/, schemas/, database/ (+migrations/), sources/,
                     pipeline/, llm/, functions/ (Inngest), observability/, auth/, tests/
@@ -121,21 +121,26 @@ make errors                 # last 20 warnings and errors from log_event
 ```
 
 `make test` is what CI runs (`.github/workflows/ci.yml`), plus a `docker compose config` check of
-`infra/compose.yaml`, the release overlay and the tunnel compose file. Run `make test` before
+`infra/compose.yaml` and the release overlay. Run `make test` before
 calling a change done. A single test:
 `docker compose -p jap exec app pytest -q tests/test_matching.py -k remote`.
 
-Ollama is **not** in Docker — it runs natively on the Mac for the GPU, reached at
-`http://host.docker.internal:11434`. `make ollama-check` says whether it is up with
-`nomic-embed-text` pulled.
+Ollama is **not** in Docker locally — it runs natively on the Mac for the GPU, reached at
+`http://host.docker.internal:11434`; on the server it is a container at `http://ollama:11434`.
+`make ollama-check` asks whichever of the two this stack really uses.
 
-Services: ui 5173, app 8001 (`/api`), inngest 8290, db 5432, adminer 8080 — all bound to
-127.0.0.1, all overridable with `JAP_*_PORT` in `.env`.
+Services: ui 5173, app 8001 (`/api`), worker (not published), inngest 8290, db 5432,
+adminer 8080 — all bound to 127.0.0.1, all overridable with `JAP_*_PORT` in `.env`.
+`app` and `worker` are the same image twice, `JAP_ROLE` apart: `app` answers `/api` and does
+not mount `/api/inngest` at all, `worker` runs the Inngest functions and the browser. Put
+business logic in `pipeline/`, as before; nothing else changes about where code goes.
 
-Every target takes `ENV=local|live`. Both run from this checkout: `local` is the dev stack
-(`.env`, `data/`, never submits), `live` is the release stack behind the Cloudflare Tunnel at
-jap.tutorial.monster (`.env.live`, `data-live/`, submits for real). Leave `ENV` off unless the
-task is about hosting, and never run anything with `ENV=live` without being asked.
+Every target takes `ENV=local|live`. `local` is the dev stack on this Mac (`.env`, `data/`,
+never submits). **`live` is the server** (`.env.live`, `data-live/`, submits for real,
+jap.tutorial.monster): it runs the images a version tag built, which are `linux/amd64`, and
+its targets run on the server over SSH, not here. `make start ENV=live` on a Mac refuses.
+Leave `ENV` off unless the task is about hosting, and never run anything with `ENV=live`
+without being asked.
 
 ### Without the Docker stack (cloud sandboxes)
 
@@ -283,12 +288,18 @@ is never copied into it.
 
 ## Releases
 
-A user-visible change gets a version bump in three places, kept in step (not on a branch that
+A user-visible change gets a version bump in four places, kept in step (not on a branch that
 shares the queue with other agents, see Several agents at once):
 
 1. the `**Version X.Y.Z (title), D Mon YYYY.**` line at the top of `README.md`,
 2. a new row at the top of the Version history table in `README.md`,
-3. `app = FastAPI(title="JAP", version="X.Y.Z")` in `backend/main.py`.
+3. `app = FastAPI(title="JAP", version="X.Y.Z")` in `backend/main.py`,
+4. `Version X.Y.Z` under the logo in `frontend/src/App.tsx`.
+
+The fourth is the one that gets forgotten, and it is the only one a user ever sees: it was
+left at 0.15.0 through 0.16.0 and at 0.20.0 through the first cut of 0.21.0. A backend-only
+change still shows its version in the sidebar, so "I touched no frontend files" is not a
+reason to skip it.
 
 `backend/pyproject.toml` and `frontend/package.json` stay at `0.1.0` — they are not the product
 version.
