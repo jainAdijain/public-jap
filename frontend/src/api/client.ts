@@ -379,6 +379,9 @@ export type User = {
   recovery_codes_left: number
   /** False until this account agrees to the notice as it stands (S14); the app asks first. */
   terms_accepted: boolean
+  /** How this account can sign in (S16). Google cannot be disconnected with no password. */
+  google_connected: boolean
+  has_password: boolean
 }
 export type AuthState = {
   has_accounts: boolean
@@ -387,6 +390,7 @@ export type AuthState = {
   two_step_pending: boolean
   turnstile_site_key: string // set: sign-up and forgot password show the "prove you're human" check
   terms_version: string // the notice the sign-up tick agrees to (S14)
+  google: boolean // the server has a Google OAuth client, so the button is shown (S16)
 }
 // verify_email: a new account has no session yet; the page says Check your email (S10).
 export type SignInResult = { signed_in: boolean; two_step: boolean; user: User | null; verify_email?: boolean }
@@ -417,6 +421,10 @@ export const auth = {
     link.click()
     URL.revokeObjectURL(url)
   },
+  /** Where "Continue with Google" goes (S16). A whole-page navigation, not a fetch: the
+   * browser has to follow the redirect to Google and come back with its own cookies. */
+  googleStartUrl: `${API_URL}/api/auth/google/start`,
+  googleDisconnect: () => request<User>('/api/auth/google/disconnect', json('POST', {})),
   /** Delete this account and everything private about it, at once and for good (S15). */
   deleteMyAccount: (password: string, confirmEmail: string, code: string) =>
     request<{ deleted: boolean }>('/api/account/delete', json('POST', { password, confirm_email: confirmEmail, code })),

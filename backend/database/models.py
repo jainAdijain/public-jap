@@ -396,6 +396,8 @@ class AppUser(Timestamps, Base):
 
     id: Mapped[uuid.UUID] = _id()
     email: Mapped[str] = mapped_column(Text)
+    # Empty when this account signs in with Google only (S16). auth/passwords.py answers an
+    # empty hash exactly as it answers a wrong password, so there is nothing to sign in to.
     password_hash: Mapped[str] = mapped_column(Text)
     is_admin: Mapped[bool] = mapped_column(Boolean, server_default="false")
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -418,6 +420,19 @@ class AppUser(Timestamps, Base):
     limit_ai_usd: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     limit_boards: Mapped[int | None] = mapped_column(Integer)
     limit_applications: Mapped[int | None] = mapped_column(Integer)
+
+
+class UserIdentity(Timestamps, Base):
+    """An account somewhere else that signs in to this one (PRD S16). Found by
+    (provider, subject): the provider's own id for the person, never their email."""
+
+    __tablename__ = "user_identity"
+
+    id: Mapped[uuid.UUID] = _id()
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    provider: Mapped[str] = mapped_column(Text)
+    subject: Mapped[str] = mapped_column(Text)
+    email: Mapped[str | None] = mapped_column(Text)  # what they said then; never looked up by
 
 
 class AuthSession(Timestamps, Base):

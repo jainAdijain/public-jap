@@ -66,6 +66,10 @@ class UserOut(BaseModel):
     # shows the agreement screen before anything else, and the API refuses the rest of
     # /api until it is given. Required, so a caller cannot leave it out and read as agreed.
     terms_accepted: bool
+    # How this account can sign in (S16). An account made through Google has no password
+    # until it sets one, and Google cannot be disconnected while that is so.
+    google_connected: bool = False
+    has_password: bool = True
 
 
 class AuthState(BaseModel):
@@ -77,6 +81,7 @@ class AuthState(BaseModel):
     two_step_pending: bool
     turnstile_site_key: str = ""  # set: the page shows the "prove you're human" check
     terms_version: str = ""  # the notice the sign-up tick agrees to (S14)
+    google: bool = False  # the GOOGLE_ settings are filled in, so the button is shown (S16)
 
 
 class SignInResult(BaseModel):

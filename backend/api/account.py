@@ -91,7 +91,10 @@ async def delete_my_account(
     await limits.check(session, request, "account-delete", user.email)
     if user.is_admin:
         raise ApiError(409, "conflict", ADMIN_STAYS)
-    await check_password(session, user, body.password)
+    # An account that signs in with Google only has no password to ask for (S16); the live
+    # session and typing the address out are what it has instead.
+    if user.password_hash:
+        await check_password(session, user, body.password)
     if user.totp_secret is not None and not use_code(user, body.code):
         raise ApiError(403, "wrong_code", "That code didn't work")
     if body.confirm_email.strip().lower() != user.email.lower():

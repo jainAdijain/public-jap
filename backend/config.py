@@ -59,6 +59,21 @@ class Settings(BaseSettings):
     def email_password(self) -> str:
         return self.smtp_password if self.smtp_username else self.gmail_app_password
 
+    # Sign in with Google (S16). All three empty means the button is not shown and the
+    # routes answer Not Found, the same shape as Turnstile, so a fresh clone and make test
+    # need nothing from Google. The redirect URL must match the one on the OAuth client.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_url: str = ""
+    # Only a stand-in for testing points this elsewhere (tests/test_google.py).
+    google_issuer_url: str = "https://accounts.google.com"
+
+    @property
+    def google_ready(self) -> bool:
+        return bool(
+            self.google_client_id and self.google_client_secret and self.google_redirect_url
+        )
+
     inngest_base_url: str = "http://inngest:8288"
 
     # How many searches may run at once across the whole service (T6). Each user is held to

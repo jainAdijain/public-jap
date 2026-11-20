@@ -40,6 +40,29 @@ function Card({ title, lead, wide, children }: { title: string; lead?: string; w
   )
 }
 
+/**
+ * Sign in with Google (S16). A link, not a fetch: the browser itself has to go to Google
+ * and come back, which XHR cannot do. Shown only where the server says it is set up.
+ */
+export function GoogleButton({ show, label }: { show: boolean; label: string }) {
+  if (!show) return null
+  return (
+    <>
+      <hr className="rule" />
+      <a className="btn auth-submit" href={auth.googleStartUrl}>
+        {/* Google's own G, so the button is recognisable at a glance. */}
+        <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">
+          <path fill="#4285F4" d="M45 24c0-1.6-.1-2.7-.4-4H24v7.5h12c-.2 2-1.6 5-4.5 7l6.9 5.4C42.5 36.2 45 30.6 45 24z" />
+          <path fill="#34A853" d="M24 46c5.9 0 10.9-2 14.5-5.3l-6.9-5.4c-1.9 1.3-4.400 2.1-7.6 2.1-5.8 0-10.7-3.9-12.5-9.1l-7.1 5.5C8 40.4 15.4 46 24 46z" />
+          <path fill="#FBBC05" d="M11.5 28.3A13.6 13.6 0 0 1 10.8 24c0-1.5.3-3 .7-4.3l-7.1-5.5A22 22 0 0 0 2 24c0 3.5.8 6.9 2.4 9.8z" />
+          <path fill="#EA4335" d="M24 10.8c3.3 0 5.5 1.4 6.8 2.6l5-4.9C32.9 5.7 29.9 4 24 4 15.4 4 8 9.6 4.4 14.2l7.1 5.5C13.3 14.7 18.2 10.8 24 10.8z" />
+        </svg>
+        {label}
+      </a>
+    </>
+  )
+}
+
 /** The terms and privacy tick (S14), on sign-up and on the agreement screen. */
 export function TermsTick({ checked, onChange, onRead }: { checked: boolean; onChange: (v: boolean) => void; onRead: () => void }) {
   return (
@@ -247,6 +270,8 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
               I already have an account
             </button>
           )}
+          {/* Google asks for the same agreement, on the screen straight after signing in. */}
+          <GoogleButton show={state.google} label="Create your account with Google" />
         </form>
       </Card>
     )
@@ -410,6 +435,7 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
         ) : (
           <p className="muted small">New accounts are paused for now.</p>
         )}
+        <GoogleButton show={state.google} label="Continue with Google" />
       </form>
     </Card>
   )

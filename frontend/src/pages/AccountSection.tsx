@@ -39,7 +39,7 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void 
 }
 
 export default function AccountSection() {
-  const { user, setUser, signOut } = useAuth()
+  const { user, setUser, signOut, google } = useAuth()
   const { toast } = useApp()
   const [open, setOpen] = useState<Open>(null)
   const [current, setCurrent] = useState('')
@@ -229,6 +229,36 @@ export default function AccountSection() {
             <PrivacyNotice />
           </div>
         </details>
+
+        {google && (
+          <>
+            <hr className="rule" />
+            <div className="inline spread">
+              <span>
+                <b>Google</b>{' '}
+                <span className="muted">{user.google_connected ? '· connected, so you can sign in with it' : '· not connected'}</span>
+              </span>
+              {user.google_connected ? (
+                <button
+                  type="button"
+                  disabled={busy || !user.has_password}
+                  title={user.has_password ? undefined : 'Set a password first, or you could not sign in again'}
+                  onClick={() => void run(async () => setUser(await auth.googleDisconnect()))()}
+                >
+                  Disconnect
+                </button>
+              ) : (
+                <a className="btn" href={auth.googleStartUrl}>
+                  Connect
+                </a>
+              )}
+            </div>
+            {!user.has_password && user.google_connected && (
+              <p className="help">This account has no password, so Google is the only way in. Set one with Change password to disconnect it.</p>
+            )}
+            {failure}
+          </>
+        )}
 
         <hr className="rule" />
 

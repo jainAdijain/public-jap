@@ -57,6 +57,7 @@ from database.models import (
     LogEvent,
     PasswordReset,
     ResumeVersion,
+    UserIdentity,
     WatchedBoard,
 )
 from pipeline import storage
@@ -88,8 +89,9 @@ DELETE_ORDER = (
 # Kept, with the person taken out of them (the module docstring says why).
 ANONYMISED = ("llm_call",)
 
-# Tables outside PRIVATE_TABLES that still name this account. app_user goes last.
-SIGN_IN_TABLES = (AuthSession, PasswordReset, EmailVerification)
+# Tables outside PRIVATE_TABLES that still name this account. app_user goes last, and
+# every one of these has to go before it: each has a foreign key to it with no cascade.
+SIGN_IN_TABLES = (AuthSession, PasswordReset, EmailVerification, UserIdentity)
 
 
 @dataclass

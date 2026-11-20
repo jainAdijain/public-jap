@@ -17,14 +17,15 @@ import secrets
 from datetime import timedelta
 
 from fastapi import APIRouter, Request, Response
-from sqlalchemy import func, select, text
+from fastapi.responses import RedirectResponse
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import ApiError
-from auth import accounts, consent, limits, passwords, sessions, totp, turnstile
+from auth import accounts, consent, limits, oidc, passwords, sessions, totp, turnstile
 from auth.deps import CurrentSession, CurrentUser
 from config import get_settings
-from database.models import AppUser, PasswordReset
+from database.models import AppUser, PasswordReset, UserIdentity
 from database.session import Session
 from pipeline.notify import EmailNotSent, Mail
 from pipeline.notify import send as send_mail
@@ -61,7 +62,14 @@ EXPIRED_LINK = "This link has expired or was already used. Ask for a new one."
 SIGN_UP_LOCK = 7_342_001  # pg_advisory_xact_lock key: one sign-up at a time
 
 
-def user_out(user: AppUser) -> UserOut:
+async def user_out(session: AsyncSession, user: AppUser) -> UserOut:
+    """Takes the session because what this account can sign in with (S16) is a row, not a
+    column: reporting it from a default would be reporting a guess."""
+    google = await session.scalar(
+        select(UserIdentity.id).where(
+            UserIdentity.user_id == user.id, UserIdentity.provider == "google"
+        )
+    )
     return UserOut(
         id=user.id,
         email=user.email,
@@ -69,6 +77,8 @@ def user_out(user: AppUser) -> UserOut:
         two_step=user.totp_secret is not None,
         recovery_codes_left=len(user.recovery_codes or []),
         terms_accepted=consent.accepted_terms(user),
+        google_connected=google is not None,
+        has_password=bool(user.password_hash),
     )
 
 
@@ -112,10 +122,11 @@ async def state(request: Request, session: Session) -> AuthState:
     return AuthState(
         has_accounts=has_accounts,
         sign_up_open=not has_accounts or not await accounts.sign_up_paused(session),
-        user=user_out(user) if user else None,
+        user=await user_out(session, user) if user else None,
         two_step_pending=user is None and pending is not None,
         turnstile_site_key=get_settings().turnstile_site_key,
         terms_version=consent.TERMS_VERSION,
+        google=get_settings().google_ready,
     )
 
 
@@ -166,7 +177,7 @@ async def sign_up(
         user.last_sign_in_at = sessions.now()
         await sessions.start(session, user, sessions.SIGNED_IN, request, response)
         await session.commit()
-        return SignInResult(signed_in=True, two_step=False, user=user_out(user))
+        return SignInResult(signed_in=True, two_step=False, user=await user_out(session, user))
     if await accounts.sign_up_paused(session):
         raise ApiError(403, "sign_up_closed", SIGN_UP_CLOSED)
     _new_password(body.password)
@@ -202,7 +213,7 @@ async def verify_email(
     user.last_sign_in_at = sessions.now()
     await sessions.start(session, user, sessions.SIGNED_IN, request, response)
     await session.commit()
-    return SignInResult(signed_in=True, two_step=False, user=user_out(user))
+    return SignInResult(signed_in=True, two_step=False, user=await user_out(session, user))
 
 
 @router.post("/verify/resend", status_code=202)
@@ -245,7 +256,7 @@ async def sign_in(
     user.last_sign_in_at = sessions.now()
     await sessions.start(session, user, sessions.SIGNED_IN, request, response)
     await session.commit()
-    return SignInResult(signed_in=True, two_step=False, user=user_out(user))
+    return SignInResult(signed_in=True, two_step=False, user=await user_out(session, user))
 
 
 def use_code(user: AppUser, code: str) -> bool:
@@ -290,7 +301,7 @@ async def sign_in_code(
     user.last_sign_in_at = sessions.now()
     await sessions.start(session, user, sessions.SIGNED_IN, request, response)
     await session.commit()
-    return SignInResult(signed_in=True, two_step=False, user=user_out(user))
+    return SignInResult(signed_in=True, two_step=False, user=await user_out(session, user))
 
 
 @router.post("/sign-out", status_code=204)
@@ -311,8 +322,8 @@ async def sign_out_everywhere(user: CurrentUser, response: Response, session: Se
 
 
 @router.get("/me", response_model=UserOut)
-async def me(user: CurrentUser) -> UserOut:
-    return user_out(user)
+async def me(user: CurrentUser, session: Session) -> UserOut:
+    return await user_out(session, user)
 
 
 @router.post("/terms", response_model=UserOut)
@@ -322,7 +333,7 @@ async def accept_terms(body: AcceptTerms, user: CurrentUser, session: Session) -
     _ticked(True, body.terms_version)
     consent.accept_terms(user, sessions.now())
     await session.commit()
-    return user_out(user)
+    return await user_out(session, user)
 
 
 @router.post("/forgot", status_code=202)
@@ -453,3 +464,163 @@ async def new_recovery_codes(body: Password, user: CurrentUser, session: Session
     user.recovery_codes = [totp.recovery_hash(c) for c in codes]
     await session.commit()
     return RecoveryCodes(recovery_codes=codes)
+
+
+# Sign in with Google (S16) ---------------------------------------------------------------
+
+
+def _google_on() -> None:
+    """Without the three GOOGLE_ settings there is no such feature: Not Found, not an
+    error, so a JAP without it looks like a JAP that never had it."""
+    if not get_settings().google_ready:
+        raise ApiError(404, "not_found", "Not Found")
+
+
+def _back(outcome: str) -> RedirectResponse:
+    """The browser comes back from Google to an API route, so every ending is a redirect to
+    the UI. The UI reads ?google= and says what happened."""
+    ui = get_settings().jap_ui_url.rstrip("/")
+    return RedirectResponse(f"{ui}/?google={outcome}", status_code=303)
+
+
+@router.get("/google/start")
+async def google_start() -> RedirectResponse:
+    """Off to Google. The state, nonce and PKCE verifier go in one HttpOnly cookie and
+    nowhere else, so a callback that cannot show them did not start here."""
+    _google_on()
+    state, nonce, verifier = (oidc.new_verifier() for _ in range(3))
+    response = RedirectResponse(await oidc.start_url(state, nonce, verifier), status_code=303)
+    settings = get_settings()
+    response.set_cookie(
+        sessions.cookie_name(sessions.OAUTH),
+        f"{state}.{nonce}.{verifier}",
+        max_age=oidc.START_SECONDS,
+        path="/",
+        secure=settings.jap_cookie_secure,
+        httponly=True,
+        # lax, not strict: coming back from Google is a cross-site navigation, and strict
+        # would withhold the cookie, so every sign-in would fail its own state check.
+        samesite="lax",
+    )
+    return response
+
+
+async def _google_user(
+    session: AsyncSession, who: oidc.Identity, signed_in: AppUser | None
+) -> AppUser:
+    """The account this Google identity signs in as: the one already linked, the one being
+    linked now, or a new one."""
+    linked = await session.scalar(
+        select(UserIdentity).where(
+            UserIdentity.provider == "google", UserIdentity.subject == who.subject
+        )
+    )
+    if linked is not None:
+        if signed_in is not None and linked.user_id != signed_in.id:
+            raise ApiError(409, "google_taken", "That Google account is on another JAP account")
+        linked.email = who.email  # what they said this time; never looked up by
+        user = await session.get(AppUser, linked.user_id)
+        if user is None:
+            raise ApiError(403, "account_off", ACCOUNT_OFF)
+        return user
+    if signed_in is not None:  # Connect, from Settings: they already proved this account
+        session.add(
+            UserIdentity(
+                user_id=signed_in.id, provider="google", subject=who.subject, email=who.email
+            )
+        )
+        return signed_in
+    existing = await _by_email(session, who.email)
+    if existing is not None:
+        # Linking on the address alone would hand the account to anyone who can make a
+        # Google account carrying it, so Google has to vouch for the address first.
+        if not who.email_verified:
+            raise ApiError(
+                403,
+                "email_unverified",
+                "Sign in with your password and connect Google from Settings",
+            )
+        session.add(
+            UserIdentity(
+                user_id=existing.id, provider="google", subject=who.subject, email=who.email
+            )
+        )
+        return existing
+    first = not await accounts.any_account(session)
+    if not first and await accounts.sign_up_paused(session):
+        raise ApiError(403, "sign_up_closed", SIGN_UP_CLOSED)
+    # A new account with no password at all: Google is how it signs in (S16). It is not
+    # asked for the terms here, having no session to be asked in, so it is made without
+    # them and meets the same agreement screen every account does on its next request
+    # (auth/deps.py: agreed_user), which it cannot get past without ticking.
+    user = AppUser(
+        email=who.email, password_hash="", is_admin=first, email_verified_at=sessions.now()
+    )
+    session.add(user)
+    await session.flush()
+    session.add(
+        UserIdentity(user_id=user.id, provider="google", subject=who.subject, email=who.email)
+    )
+    await accounts.start_workspace(session, user)
+    return user
+
+
+@router.get("/google/callback")
+async def google_callback(
+    request: Request, response: Response, session: Session, code: str = "", state: str = ""
+) -> RedirectResponse:
+    """Back from Google: check the handshake, swap the code, then sign in, link or create."""
+    _google_on()
+    await limits.check(session, request, "google", None)
+    cookie = request.cookies.get(sessions.cookie_name(sessions.OAUTH), "")
+    parts = cookie.split(".")
+    if not code or len(parts) != 3 or not secrets.compare_digest(parts[0], state):
+        return _back("expired")  # not ours, or they sat on Google's page too long
+    _, nonce, verifier = parts
+    row = await sessions.find(session, request, sessions.SIGNED_IN)
+    signed_in = await session.get(AppUser, row.user_id) if row else None
+    try:
+        who = await oidc.exchange(code, verifier, nonce)
+    except oidc.OidcError as exc:
+        log.warning("Google sign-in refused: %s", exc)
+        return _back("failed")
+    try:
+        user = await _google_user(session, who, signed_in)
+    except ApiError as exc:
+        await session.rollback()
+        return _back(exc.code)
+    if user.disabled_at is not None:
+        await session.rollback()
+        return _back("account_off")
+    if signed_in is None:
+        user.last_sign_in_at = sessions.now()
+        await sessions.start(session, user, sessions.SIGNED_IN, request, response)
+    await session.commit()
+    out = _back("connected" if signed_in is not None else "signed_in")
+    for header, value in response.raw_headers:  # the session cookie sessions.start just set
+        if header.lower() == b"set-cookie":
+            out.raw_headers.append((header, value))
+    out.delete_cookie(
+        sessions.cookie_name(sessions.OAUTH),
+        path="/",
+        secure=get_settings().jap_cookie_secure,
+        httponly=True,
+        samesite="lax",
+    )
+    return out
+
+
+@router.post("/google/disconnect", response_model=UserOut)
+async def google_disconnect(user: CurrentUser, session: Session) -> UserOut:
+    """Stop signing in with Google. Refused while there is no password to sign in with
+    instead, which would lock the account out of itself."""
+    _google_on()
+    if not user.password_hash:
+        raise ApiError(409, "no_password", "Set a password first, or you could not sign in again")
+    await session.execute(
+        delete(UserIdentity).where(
+            UserIdentity.user_id == user.id, UserIdentity.provider == "google"
+        )
+    )
+    await session.commit()
+    return await user_out(session, user)

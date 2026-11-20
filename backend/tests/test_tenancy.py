@@ -55,8 +55,12 @@ def test_every_private_table_has_a_user_and_a_policy(sql: psycopg.Connection[Any
             " WHERE table_schema = 'public' AND column_name = 'user_id'"
         ).fetchall()
     }
+    # Not a workspace: these carry a user_id but are read while deciding *who* somebody is,
+    # before there is a tenant to test against. user_identity is one of them — the Google
+    # callback finds it by (provider, subject) with nobody signed in yet, so a policy
+    # keyed on app.user_id would hide the row at the one moment it is needed (S16).
     not_workspace = {"auth_session", "password_reset", "email_verification", "log_event",
-                     "alert_state"}  # fmt: skip
+                     "alert_state", "user_identity"}  # fmt: skip
     assert with_user - not_workspace == set(tenant.PRIVATE_TABLES)
     secured = {
         r[0]

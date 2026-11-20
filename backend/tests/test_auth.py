@@ -109,7 +109,7 @@ async def test_first_account_is_the_admin_and_needs_no_email_check(
     state = (await anon.get("/api/auth/state")).json()
     assert state == {
         "has_accounts": False, "sign_up_open": True, "user": None, "two_step_pending": False,
-        "turnstile_site_key": "", "terms_version": TERMS_VERSION,
+        "turnstile_site_key": "", "terms_version": TERMS_VERSION, "google": False,
     }  # fmt: skip
     short = await anon.post(
         "/api/auth/sign-up", json={"email": OWNER_EMAIL, "password": "short", **TICK}
@@ -337,6 +337,8 @@ async def _turn_on_two_step(api: httpx.AsyncClient) -> tuple[str, list[str]]:
         "two_step": True,
         "recovery_codes_left": 8,
         "terms_accepted": True,
+        "google_connected": False,  # S16; tests/test_google.py is where it is true
+        "has_password": True,
     }
     return secret, codes["recovery_codes"]
 

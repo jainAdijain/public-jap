@@ -247,7 +247,7 @@ export default function App() {
   if (!state.user.terms_accepted)
     return <TermsGate user={state.user} version={state.terms_version} onAccepted={setUser} onSignOut={() => void signOut()} />
   return (
-    <AuthCtx.Provider value={{ user: state.user, setUser, signOut }}>
+    <AuthCtx.Provider value={{ user: state.user, setUser, signOut, google: state.google }}>
       <AppProvider>
         <Shell />
       </AppProvider>
