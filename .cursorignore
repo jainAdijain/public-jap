@@ -1,12 +1,10 @@
 # Cursor already skips .env* and everything in .gitignore. These lines say so out loud, and
 # put back what AGENTS.md tells an agent to read.
 
-# Secrets
+# Secrets. The tunnel token lives in .env.live now, with the rest of live's settings.
 .env
 .env.*
-infra/tunnel/.env.tunnel
 !.env.example
-!infra/tunnel/.env.tunnel.example
 
 # Real resumes, screenshots, cover letters and backups
 data/

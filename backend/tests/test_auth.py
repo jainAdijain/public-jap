@@ -432,6 +432,21 @@ async def test_requests_from_other_sites_are_refused(api: httpx.AsyncClient) -> 
     assert ours.status_code == 204
 
 
+async def test_a_write_from_another_site_without_an_origin_is_refused(
+    api: httpx.AsyncClient,
+) -> None:
+    """A form posted from another page need not carry Origin, but a browser always says
+    where the request started in Sec-Fetch-Site (IDEA-13)."""
+    cross = await api.post("/api/auth/sign-out", headers={"Sec-Fetch-Site": "cross-site"})
+    assert cross.status_code == 403 and cross.json()["error"]["code"] == "bad_origin"
+    assert (await api.get("/api/profile")).status_code == 200
+    # Our own pages, and a bookmark or typed address, carry on.
+    for value in ("same-origin", "none"):
+        assert (await api.get("/api/profile", headers={"Sec-Fetch-Site": value})).status_code == 200
+    ours = await api.post("/api/auth/sign-out", headers={"Sec-Fetch-Site": "same-origin"})
+    assert ours.status_code == 204
+
+
 async def test_a_turned_off_account_cannot_sign_in(
     api: httpx.AsyncClient, sql: psycopg.Connection[Any]
 ) -> None:

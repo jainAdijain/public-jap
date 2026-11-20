@@ -1,7 +1,6 @@
 # JAP: Job Application Pipeline
 
-**Version 0.20.0 (consent, your data back or gone, searches side by side, Google sign-in),
-20 Nov 2026.**
+**Version 0.21.0 (live runs on a server, not the Mac), 20 Nov 2026.**
 
 JAP watches the public job boards of the companies you pick (Greenhouse, Lever and Ashby),
 lists the jobs that match your profile, and prepares or submits applications for you to review.
@@ -17,17 +16,25 @@ the [build plan](https://claude.ai/artifact/1TrqC2jt8SuPVbULa8i6eU) and the
 | Service | URL (127.0.0.1 only) | What it is |
 | --- | --- | --- |
 | ui | http://localhost:5173 | React + Vite UI: Jobs, Profile, Job preferences and Settings |
-| app | http://localhost:8001 | FastAPI JSON API and Inngest functions (`/api/health`, `/api/inngest`) |
+| app | http://localhost:8001 | FastAPI JSON API (`/api/health`), the half a browser talks to |
+| worker | not published | The same image, running the Inngest functions and the Playwright browser (`/api/inngest`) |
 | inngest | http://localhost:8290 | Inngest dev server, runs every pipeline step |
 | db | localhost:5432 | Postgres 16 with pgvector, pg_trgm, pgcrypto |
 | adminer | http://localhost:8080 | Database browser (server `db`, user/password/db `jap`) |
+
+`app` and `worker` are one image started twice, `JAP_ROLE` apart. The API process does not
+mount `/api/inngest` at all, so the endpoint that runs JAP's functions is not even present in
+the process reachable from a browser; the worker, which does mount it, is published nowhere.
+It also means the browser and the heavy work (Chromium, resume parsing) cannot starve each
+other, and that live can add workers later by raising a replica count.
 
 Each host port can be changed in `.env` (`JAP_UI_PORT`, `JAP_API_PORT`, `JAP_INNGEST_PORT`,
 `JAP_DB_PORT`, `JAP_ADMINER_PORT`). The API and Inngest use 8001 and 8290 so they don't clash with
 other projects on 8000 and 8288-8289 (an Inngest dev server publishes both). Inside Docker the services keep their usual ports.
 
-Ollama is **not** in Docker. It runs natively on the Mac so it can use the GPU, and the app
-reaches it at `http://host.docker.internal:11434`.
+Ollama is **not** in Docker locally. It runs natively on the Mac so it can use the GPU, and
+the app reaches it at `http://host.docker.internal:11434`. On the server, which has no GPU
+to use, it is a container in the stack at `http://ollama:11434`.
 
 ## The screens
 
@@ -545,63 +552,134 @@ was sent and the job becomes Apply yourself.
 
 ## Hosting: local and live
 
-JAP runs for free on the Mac as two stacks, and JAP's own Cloudflare Tunnel publishes the
-live one over HTTPS ([PRD](https://claude.ai/artifact/WL9RYjsPDCTmknMLRqzKRj) H1 to H8). It
-is up while the Mac is on and awake.
+There are two environments. **local** is this working copy on your Mac. **live** is the
+server: one Linux machine that runs the whole stack, is up whether or not your Mac is, and
+is the only place that submits applications, sends email or holds anybody else's data
+([PRD](https://claude.ai/artifact/WL9RYjsPDCTmknMLRqzKRj) H1 to H8).
 
 | | local | live |
 | --- | --- | --- |
+| Where | your Mac | the server |
 | Address | http://localhost:5173 | https://jap.tutorial.monster |
-| Env file | `.env` | `.env.live` |
-| Code | this working copy, live reload | built into the image; a file you edit changes nothing until the next `make start ENV=live` |
+| Env file | `.env` | `.env.live`, on the server and nowhere else |
+| Code | this working copy, live reload | the images GitHub Actions built for a version tag |
 | UI | Vite dev server | `npm run build`, served by Caddy, which passes `/api` to the app |
-| Entry / API / Inngest / DB ports | 5173 / 8001 / 8290 / 5432 | 5373 / 8201 / 8490 / 5434 |
+| Ollama | native on the Mac, for the GPU | a container in the stack, on the CPU |
+| Entry / API / Inngest / DB ports | 5173 / 8001 / 8290 / 5432 | 5373 / 8201 / 8490 / 5434, on 127.0.0.1 and reachable only over SSH |
 | Data folder | `data/` | `data-live/` |
 | Submits applications | **never** (`JAP_SUBMIT_ENABLED=false`) | **yes, for real** |
 | Sends email | no | yes, the real mailbox |
-| 06:00 daily search | leave off | turn on in Settings once you trust it |
-| Adminer | yes, `:8080` | no |
-| Restarts with Docker Desktop | no | yes |
+| Daily search | leave off | on |
+| Adminer | yes, `:8080` | not in the stack at all |
+| Starts itself after a reboot | no | yes, every service |
 | UI badge | **DEV** | none |
 
-Both run from this one checkout and share nothing but the Mac and Ollama: separate Docker
-project (`jap`, `jap-live`), separate database volume, separate data folder, separate ports.
-So `make reset` on local cannot touch a real application, and a broken edit cannot reach the
-public site. Every target takes `ENV=local|live`; without it you get local, exactly as before
-(`make logs ENV=live`, `make backup ENV=live`).
+Every target takes `ENV=local|live`; without it you get local. On the Mac, `ENV=live` is for
+reading and not for running: `make start ENV=live` refuses, because the images are
+`linux/amd64` and because live is other people's data. live's targets run on the server.
 
-live adds `infra/compose.release.yaml`: the built UI behind Caddy so the browser only ever
-talks to one address, a self-hosted Inngest with its own keys, no source mounts, no Adminer,
-and `restart: unless-stopped` on every service. Only live's UI port goes through the tunnel;
-the API port, Inngest's dashboard, Postgres, Adminer and Ollama are never published (H2),
-and the local stack is never published at all.
+### The server
+
+One machine, and it will be enough for a long time: 4 vCPU, 8 GB, 80 GB of NVMe — a Hetzner
+CX33 in Falkenstein is about €11 a month with its backups. Singapore is nearer to India but
+roughly twice that, and visitors reach a Cloudflare edge near themselves either way, so only
+the admin feels the difference.
+
+The 8 GB is not for throughput. Postgres, Inngest, Caddy, the API, the worker and Ollama come
+to roughly 1.9 GB together, and a Chromium filling in a form adds about 1 GB on top of that.
+An out-of-memory kill *between pressing Submit and reading the answer* is the one failure JAP
+cannot sort out by itself — the application becomes Failed with "Submit outcome unknown" and
+somebody has to go and look at the employer's site — so the machine has room to spare, and
+2 GB of swap underneath it.
+
+Nothing listens on the internet. The site is served through JAP's own Cloudflare Tunnel, a
+container in the stack making one outbound connection, and the firewall allows SSH and
+nothing else. The tunnel reaches Caddy at `ui:8080` over the stack's own Docker network, so
+not even the UI port needs publishing (H2).
 
 **First time**
 
-1. Docker Desktop: Settings, General, turn on *Start Docker Desktop when you sign in*.
-2. `make mac-wake` so the Mac wakes at 05:55 for the 06:00 search.
-3. `make start ENV=live`. The first run writes `.env.live` from `.env.example` plus
-   `infra/env/live.env`, with a fresh database password and Inngest keys. Put the OpenRouter
-   key and the real mailbox password in it, then run it again.
-4. Cloudflare dashboard, Zero Trust, Networks, Tunnels: create a tunnel named `jap` and add
-   one public hostname, `jap.tutorial.monster` to `http://host.docker.internal:5373`. Copy
-   `infra/tunnel/.env.tunnel.example` to `infra/tunnel/.env.tunnel` and paste the token.
-5. `make tunnel-start`, then open https://jap.tutorial.monster and create your account. live
-   starts empty: it does not share the local stack's profile, resume or jobs.
+1. Make the machine (Debian or Ubuntu, your SSH key on it). Then, from this checkout:
 
-Before the tunnel opens, turn on two-step sign-in (Settings > Account) and add a Cloudflare
-rate-limiting rule on `/api/auth/*`. The sign-in page is then on the public internet, and the
-per-account lockout is the only limit JAP itself applies.
+   ```bash
+   ssh root@<server> 'bash -s' < infra/scripts/server-setup.sh
+   ```
 
-**Releasing**
+   It installs Docker, makes a `jap` user, closes the firewall to everything but SSH, turns
+   on unattended security updates, adds swap, and clones this repository to
+   `/srv/public-jap`. Running it again changes nothing it has already done.
 
-There is no promotion step: live runs whatever this checkout builds.
+2. Cloudflare, Zero Trust, Networks, Tunnels: create a tunnel **for the server**, its own and
+   not the Mac's. Two connectors on one tunnel makes Cloudflare share traffic between them,
+   which during a move is the last thing you want. Copy its token.
+
+3. On the server, as `jap`: `cd /srv/public-jap && make env ENV=live` writes `.env.live` with
+   a fresh database password and Inngest keys. Put the four secrets into it by hand, once:
+   `TUNNEL_TOKEN`, `OPENROUTER_API_KEY`, `SMTP_PASSWORD`, and `SENTRY_DSN` if you want errors
+   reported.
+
+4. `make deploy ENV=live TAG=vX.Y.Z` (below), and wait for `/api/health` to come back green
+   on all four checks.
+
+5. Only then add the public hostname in the Cloudflare dashboard: `jap.tutorial.monster` to
+   `http://ui:8080`. That is the step that actually puts JAP on the internet, so it goes
+   last. Add a Cloudflare rate-limiting rule on `/api/auth/*` at the same time.
+
+6. Add an uptime check from outside — Better Stack and UptimeRobot both do it free — on
+   `https://jap.tutorial.monster/api/health` every five minutes, matching the text
+   `"ok":true`. This matters more than it looks: every alert JAP sends comes from
+   `health-watch` running *inside* the stack, so the one thing it can never tell you about is
+   the stack being down. Match on the text rather than the status code, because `/api/health`
+   deliberately answers 200 with `"ok":false` when a dependency is unwell.
+
+### Releasing
+
+A version tag is the release. Pushing it builds the two images and pushes them to GHCR
+(`.github/workflows/release.yml`), and the server checks out the same tag and pulls them, so
+the compose files, the migrations and the running image are always one version.
 
 1. Make the change and check it on local (`make start`, `make test`).
-2. `make backup ENV=live` if the change has a migration.
-3. `make start ENV=live` rebuilds the image, restarts live and applies migrations.
-4. Something wrong: `git checkout <last good tag>` and `make start ENV=live` again. If a
-   migration changed data, `make restore ENV=live FILE=data-live/backups/<file>.sql.gz`.
+2. `git tag v0.21.0 && git push origin v0.21.0`, and wait for the Release workflow.
+3. Back the database up first if the change has a migration (`make backup ENV=live`, on the server).
+4. `ssh jap@<server> 'cd /srv/public-jap && make deploy ENV=live TAG=v0.21.0'`.
+
+`make deploy` fetches tags, refuses a checkout with local changes, checks the tag out, pulls,
+starts, waits for `/api/health` and migrates. **Rolling back is the same command with the tag
+before it**, and takes about a minute: the old image is still in the registry and usually
+still on the disk. If a migration changed data, restore as well
+(`make restore ENV=live FILE=data-live/backups/<file>.sql.gz`).
+
+### Backups
+
+| What | Covers | Where it lives |
+| --- | --- | --- |
+| Hetzner automatic backups | the whole disk, 7 rolling days | the hosting account |
+| `daily-backup` | `pg_dump` into `data-live/backups`, 14 days | the server's disk, and so inside the snapshot |
+| `make backup-pull SERVER=<ssh host>` | the newest dump | **this Mac**, in `data/backups-live/` |
+
+A disk snapshot of a running Postgres is crash-consistent: it replays its log on start, the
+same as after a power cut. The `pg_dump` is what lets you put one table or one account back,
+which a disk image cannot.
+
+The third row is the one that is not really optional. The first two both live with the
+server: lose the hosting account — closed, compromised, or a card that expired — and the
+machine and every backup of it go at the same moment, and the database holds other people's
+resumes and answers now. `make backup-pull` costs nothing, runs from the Mac, and leaves a
+copy on hardware you own. Run it after anything important, and restore one occasionally: a
+backup nobody has ever restored is a hope, not a backup.
+
+### What is on the server and what is not
+
+Adminer is not in the live stack, so there is no database browser on the public machine. The
+admin screens — Accounts, Status, Health, Insights, duplicates, form tests — show counts,
+dates, addresses and health, and never a user's resume, answers or jobs. Looking at the
+database itself means an SSH tunnel to the server's `127.0.0.1` Postgres port, which means
+being on the machine already.
+
+Caddy sends a content security policy with every page, which allows scripts from JAP itself
+and Cloudflare Turnstile and nothing else, so adding anything to the UI that loads from a new
+host means adding it to `infra/caddy/Caddyfile` too. The sign-up page is the one to check
+afterwards, because Turnstile is the only third-party script JAP loads.
 
 ## Make targets
 
@@ -619,6 +697,7 @@ There is no promotion step: live runs whatever this checkout builds.
 | `make worktree NAME=...` | A sibling worktree on its own branch with its own stack, ports and `data/`, for an agent working alongside you; `worktree-list` and `worktree-remove NAME=...` go with it |
 | `make hooks` | Turn on the pre-commit check for this clone: refuses secrets files, `docs/`, `data/` and anything that looks like a key |
 | `make backup` / `make restore FILE=...` | Dump to / restore from `data/backups/` (the app also makes one every day) |
+| `make backup-pull SERVER=...` | Copy the server's newest dump to this Mac: the one backup that does not live with the server |
 | `make close-unfollowed` | List open postings of companies you no longer follow; `APPLY=1` closes them (back up first) |
 | `make code-mail-check` | Log in to the mailbox over IMAP and count the Greenhouse emails it holds (security codes, PRD A5) |
 | `make qa` | Dedup QA set: place the 106 labelled job pairs and print the accuracy |
@@ -630,18 +709,18 @@ There is no promotion step: live runs whatever this checkout builds.
 | `make errors` | The last 20 warnings and errors from `log_event` |
 | `make email-test TO=...` | Send one test email from the mailbox in `.env` |
 | `make llm-check` | One tiny test call to each OpenRouter model (no personal data) |
-| `make ollama-check` | Is Ollama answering with `nomic-embed-text` pulled |
+| `make ollama-check` | Is Ollama answering with `nomic-embed-text` pulled, at the address the app really uses |
 | `make demo` / `make demo-clear` | Load or remove the demo postings used to check dedup and the filters |
-| `make env ENV=live` | Write `.env.live` with a fresh database password and Inngest keys (`make start ENV=live` does it too) |
-| `make tunnel-start` / `tunnel-stop` / `tunnel-status` | JAP's Cloudflare Tunnel (`.env.tunnel`) |
-| `make mac-wake` | Wake the Mac at 05:55 every day for the 06:00 search |
+| `make env ENV=live` | Write `.env.live` with a fresh database password and Inngest keys (on the server) |
+| `make deploy ENV=live TAG=...` | On the server: check out a release tag, pull its images, start, migrate. Rollback is the same with the tag before |
+| `make tunnel-status` | Is the Cloudflare Tunnel connected? (it is a service of the live stack, so `make start`/`stop ENV=live` is what turns it on and off) |
 
 ## Layout
 
 ```
 Makefile            .env.example
 infra/              compose.yaml, compose.release.yaml (live), docker/ (Dockerfiles),
-                    caddy/, env/live.env, tunnel/, postgres/init.sql, scripts/
+                    caddy/, env/live.env, postgres/init.sql, scripts/
 seed/               companies.yaml, skills.yaml
 backend/            main.py, config.py, schemas/, database/ (+ migrations/), api/,
                     sources/, pipeline/, llm/, functions/ (Inngest), tests/
@@ -656,6 +735,7 @@ AGENTS.md           the rules for coding agents; CLAUDE.md, .devin/, .claude/, .
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.21.0 | 20 Nov 2026 | live runs on a server instead of the Mac (PRD H1 to H8; IDEA-10 to IDEA-14). One Linux machine is up whether or not the Mac is, and nothing about local changes. **Two halves** (H2): the app image runs twice, `JAP_ROLE` apart — `app` answers `/api` and does not mount `/api/inngest` at all, `worker` runs the Inngest functions and the Playwright browser and is published nowhere, so the endpoint that runs JAP's functions is absent from the process a browser can reach rather than merely guarded. Both exist on local too, so dev reproduces live, and Phase 4 adds workers by raising a replica count. **Releases**: live builds nothing. A `v*` tag makes GitHub Actions push `public-jap-app` and `-ui` to GHCR, and `make deploy TAG=vX.Y.Z` on the server checks that tag out and pulls them; the image tag comes from the checked-out tag, so the compose files and what runs cannot drift apart, and rolling back is the same command with the tag before. The images are `linux/amd64` and starting the release stack refuses on a Mac. **The machine**: `infra/scripts/server-setup.sh` prepares a fresh Debian — Docker, a `jap` user, a firewall open only to SSH, unattended security updates, and swap, because an out-of-memory kill between pressing Submit and reading the answer is the one failure JAP cannot resolve by itself. Ollama becomes a container (the server has no GPU to use) and cloudflared joins the stack, reaching Caddy over the Docker network, so the server publishes no inbound port at all and `infra/tunnel/` is gone. **Keeping less** (IDEA-14): traces 30 days and screenshots 180, swept hourly by health-watch — files only, because an Applied application is frozen (A2) and both screens already ask the filesystem. **Hardening** (IDEA-13): a write is refused when `Sec-Fetch-Site` says it began on another site, not only when `Origin` does; Caddy sends a content security policy, HSTS and the rest; and the board reader refuses any address that is not an ATS on every hop, so a redirect cannot aim JAP at the server's metadata service. **Backups**: `make backup-pull` copies the server's newest dump to the Mac, the only copy that survives losing the hosting account |
 | 0.20.0 | 20 Nov 2026 | Consent, your data back or gone, searches side by side and Google sign-in (PRD S14, S15, S16, T6, U22). **Consent** (`0015_consent`): the terms and privacy notice are ticked at sign-up and the version ticked is kept, so raising `TERMS_VERSION` asks everyone again; accounts from before are asked once on their next visit, because a consent written by a migration is one nobody gave. Every `/api` route but health and `/api/auth` now carries that tick, not only the screen. An opt-in before JAP applies in your name and a second before it does so without asking; taking the first back takes the second with it and returns the account to Review mode, and Submit reads it again at the last moment, so an attempt approved before it was withdrawn fails instead of being sent. **Your data** (`0016_erasure`): Download my data gives a zip of every private table plus the files, and Delete my account removes all of it at once, with no undo; both work even for an account that will not agree to the notice, or the gate would be a trap. `llm_call` and `log_event` outlive it with the user nulled, holding no personal content. Deleting an Applied application is still refused everywhere except inside the erasure transaction. **Searches side by side** (T6): `run-pipeline` takes a concurrency keyed on `user_id` under a `JAP_MAX_PARALLEL_RUNS` ceiling, so two people search at once and only your own search holds yours up; a board fetched within `JAP_BOARD_FRESH_MINUTES` is reused rather than fetched again, while still reading descriptions nobody had asked for yet. **Time zone** (U22): the daily search runs in each account's own zone, set beside the time in Settings. **Google sign-in** (`0017_user_identity`): OpenID Connect with PKCE beside the password, linking to an account that already exists only when Google says the address is verified, Connect and Disconnect in Settings, and the button hidden unless the `GOOGLE_` settings are filled in |
 | 0.19.0 | 17 Nov 2026 | Each user's own data and open sign-up (PRD 1.18 step 2: S7, S10, S12, S13). Facts about jobs stay shared and everything about a person is private: every private table carries a `user_id`, and `board_follow` and `user_listing` hold the personal half of what sat on shared rows (migration `0011_tenancy`; existing data goes to the admin). Every route and background job works for one user and another user's id answers Not Found; Postgres repeats the check with row-level security (`0013_rls`). A company two people follow is fetched once and each description is read by the AI once; a role-scoped search stores the whole board, reading a posting uses no profile details, and Merge and Not the same job are the admin's. Anyone can create an account and confirms the address by an emailed link (`0012_email_verify`), with limits per address and per email and optional Cloudflare Turnstile. The free plan is 1 company, 1 application a day and $1 of AI a month, shown in Settings as Your plan; the admin can set any one account's own limits (`0014_account_limits`), turn an account off and pause sign-up from Settings > Accounts. Reading shared descriptions has the service's own budget and a total limit spans everything. System status, Health, backups, form tests and duplicates are the admin's. Files are written under `data/users/<user id>/` |
 | 0.18.1 | 13 Nov 2026 | Fix the four settings you type rather than tick saving only when the field lost focus (JAP-6). Settings says changes save straight away, and every radio and switch does, but "Send at most N applications a day", "Only jobs with at least N% of my required skills", the daily search time and the monthly AI limit waited for a click somewhere else: Enter did nothing at all and there was no button, so a typed number looked ignored. Enter saves now, so does a Save button that appears beside the field as soon as the value differs from the saved one, Escape forgets the edit, and leaving the field still saves so nothing typed is lost. What was typed stays on screen until the save comes back, instead of showing the old value again in between |

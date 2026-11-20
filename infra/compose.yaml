@@ -1,7 +1,8 @@
-# JAP stack: ui, app, inngest, db, adminer. Every port binds to 127.0.0.1 only.
+# JAP stack: ui, app, worker, inngest, db, adminer. Every port binds to 127.0.0.1 only.
 # This file is the local stack; live adds infra/compose.release.yaml on top (PRD H2 to H5).
 # Host ports come from JAP_*_PORT in .env (defaults below); inside Docker the ports never change.
-# Ollama is not here: it runs natively on the Mac so it can use the GPU.
+# Ollama is not here: locally it runs natively on the Mac so it can use the GPU, and live
+# adds it as a container (infra/compose.release.yaml).
 # Run through the Makefile (make start ENV=local|live), which picks the project name
 # (JAP_PROJECT: jap, jap-live) so each environment keeps its own volumes.
 name: jap
@@ -13,6 +14,42 @@ x-logging: &logging
   options:
     max-size: 50m
     max-file: "5"
+
+# The app image runs twice (PRD H2): `app` answers /api for the browser, `worker` runs the
+# Inngest functions and the Playwright browser. One image, one set of settings, JAP_ROLE
+# apart — so nothing the browser can reach ever mounts /api/inngest, and Phase 4 adds
+# workers by raising a replica count and changing nothing else.
+x-app: &app
+  logging: *logging
+  build:
+    context: ..
+    dockerfile: infra/docker/app.Dockerfile
+  # Which env file is injected into the container: local reads .env, live reads .env.live.
+  # The Makefile's --env-file only substitutes variables in this file, so it must be named
+  # here too, or live would run on local's settings (JAP_ENV_FILE, set in infra/env/live.env).
+  env_file: ../${JAP_ENV_FILE:-.env}
+  environment: &app-env
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-jap}:${POSTGRES_PASSWORD:-jap}@db:5432/${POSTGRES_DB:-jap}
+    INNGEST_DEV: "1"
+    INNGEST_BASE_URL: http://inngest:8288
+    # Any non-empty value: the dev server takes whatever key it is given. Without one the
+    # SDK (0.5.20) posts to /e/ with an empty key, the dev server answers 303 with an empty
+    # body, and the SDK's resp.json() raises — so every route that sends an event answers
+    # 503 inngest_unreachable. The live overlay sets a real key over this.
+    INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY:-dev}
+    JAP_SEED_DIR: /seed
+    CORS_ORIGINS: '["http://localhost:${JAP_UI_PORT:-5173}"]'
+  volumes:
+    - ../backend:/app
+    - ../seed:/seed:ro
+    # Each environment keeps its own data folder (local: data, live: data-live).
+    - ../${JAP_DATA_HOST_DIR:-data}:/data
+  extra_hosts:
+    # Reach Ollama on the Mac. Docker Desktop provides this name; the line keeps Linux working too.
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    db:
+      condition: service_healthy
 
 services:
   ui:
@@ -33,49 +70,41 @@ services:
       - app
 
   app:
-    logging: *logging
-    build:
-      context: ..
-      dockerfile: infra/docker/app.Dockerfile
+    <<: *app
     ports:
       - "127.0.0.1:${JAP_API_PORT:-8001}:8000"
-    # Which env file is injected into the container: local reads .env, live reads .env.live.
-    # The Makefile's --env-file only substitutes variables in this file, so it must be named
-    # here too, or live would run on local's settings (JAP_ENV_FILE, set in infra/env/live.env).
-    env_file: ../${JAP_ENV_FILE:-.env}
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-jap}:${POSTGRES_PASSWORD:-jap}@db:5432/${POSTGRES_DB:-jap}
-      INNGEST_DEV: "1"
-      INNGEST_BASE_URL: http://inngest:8288
-      # Any non-empty value: the dev server takes whatever key it is given. Without one the
-      # SDK (0.5.20) posts to /e/ with an empty key, the dev server answers 303 with an empty
-      # body, and the SDK's resp.json() raises — so every route that sends an event answers
-      # 503 inngest_unreachable. The live overlay sets a real key over this.
-      INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY:-dev}
+      <<: *app-env
+      JAP_ROLE: api
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  worker:
+    <<: *app
+    environment:
+      <<: *app-env
+      JAP_ROLE: worker
       # The URL Inngest calls back, even when a sync is started from the Mac's browser.
-      INNGEST_SERVE_ORIGIN: http://app:8000
-      JAP_SEED_DIR: /seed
-      CORS_ORIGINS: '["http://localhost:${JAP_UI_PORT:-5173}"]'
-    volumes:
-      - ../backend:/app
-      - ../seed:/seed:ro
-      # Each environment keeps its own data folder (local: data, live: data-live).
-      - ../${JAP_DATA_HOST_DIR:-data}:/data
-    extra_hosts:
-      # Reach Ollama on the Mac. Docker Desktop provides this name; the line keeps Linux working too.
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      db:
-        condition: service_healthy
+      INNGEST_SERVE_ORIGIN: http://worker:8000
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   inngest:
     logging: *logging
     image: inngest/inngest:v1.49.0
-    command: inngest dev -u http://app:8000/api/inngest --no-discovery
+    command: inngest dev -u http://worker:8000/api/inngest --no-discovery
     ports:
       - "127.0.0.1:${JAP_INNGEST_PORT:-8290}:8288"
     depends_on:
-      - app
+      - worker
 
   db:
     logging: *logging

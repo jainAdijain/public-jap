@@ -25,7 +25,7 @@ list_files() {
 classify() {
   while IFS= read -r f; do
     case "$f" in
-      .env.example | infra/tunnel/.env.tunnel.example | data/.gitkeep) ;;
+      .env.example | data/.gitkeep) ;;
       .env | .env.* | */.env | */.env.*) echo "secrets file: $f" ;;
       docs/*) echo "product document (personal data): $f" ;;
       data/* | data-live/*) echo "runtime data: $f" ;;

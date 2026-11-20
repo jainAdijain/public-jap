@@ -1,18 +1,38 @@
-# Release overlay for test and prod (PRD H2 to H5). The Makefile adds it when JAP_RELEASE=1:
+# Release overlay for live (PRD H2 to H5). The Makefile adds it when JAP_RELEASE=1:
 #   docker compose -f infra/compose.yaml -f infra/compose.release.yaml
-# Built UI behind Caddy (one entry port), no source bind mounts, self-hosted Inngest with
-# its own keys, no Adminer, and every service restarts when Docker Desktop starts (H8).
+# Built UI behind Caddy (one entry port), no source bind mounts, self-hosted Inngest with its
+# own keys, no Adminer, and every service restarts when Docker does (H8).
+#
+# live does not build: `app` and `ui` are the images GitHub Actions pushed to GHCR for a
+# version tag (.github/workflows/release.yml), and `make deploy TAG=vX.Y.Z` checks out that
+# tag and pulls them. JAP_IMAGE_TAG comes from the checked-out tag, so the compose file and
+# the image it runs can never disagree. The images are linux/amd64, which is why the live
+# stack runs on the server and cannot be started on the Mac.
+#
+# Two services exist only here: ollama, because the Mac runs it natively for the GPU and the
+# server has no GPU to use, and cloudflared, which is how the site is on the internet (H1,
+# H6) without the server opening a single inbound port.
 services:
   ui:
-    build:
-      target: release
+    build: !reset null
+    image: ${JAP_IMAGE_UI:?set JAP_IMAGE_UI}:${JAP_IMAGE_TAG:?set JAP_IMAGE_TAG (make deploy TAG=vX.Y.Z)}
+    # Bound to 127.0.0.1 for a look over an SSH tunnel; the public path is cloudflared, which
+    # reaches Caddy at ui:8080 over the Docker network and needs no published port at all.
     ports: !override
       - "127.0.0.1:${JAP_UI_PORT:?set JAP_UI_PORT}:8080"
     volumes: !reset []
     environment: !reset {}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
   app:
+    build: !reset null
+    image: ${JAP_IMAGE_APP:?set JAP_IMAGE_APP}:${JAP_IMAGE_TAG:?set JAP_IMAGE_TAG (make deploy TAG=vX.Y.Z)}
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     volumes: !override
       - ../seed:/seed:ro
@@ -25,8 +45,28 @@ services:
       CORS_ORIGINS: '["${JAP_UI_URL:?set JAP_UI_URL}"]'
     restart: unless-stopped
 
+  worker:
+    build: !reset null
+    image: ${JAP_IMAGE_APP:?set JAP_IMAGE_APP}:${JAP_IMAGE_TAG:?set JAP_IMAGE_TAG (make deploy TAG=vX.Y.Z)}
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes: !override
+      - ../seed:/seed:ro
+      - ../${JAP_DATA_HOST_DIR:-data}:/data
+    environment:
+      INNGEST_DEV: "0"
+      INNGEST_BASE_URL: http://inngest:8288
+      INNGEST_API_BASE_URL: http://inngest:8288
+      INNGEST_EVENT_API_BASE_URL: http://inngest:8288
+      CORS_ORIGINS: '["${JAP_UI_URL:?set JAP_UI_URL}"]'
+    depends_on:
+      ollama:
+        # Started, not healthy: the first start pulls the embedding model, and nothing else
+        # should wait minutes for that. A description that arrives early is retried.
+        condition: service_started
+    restart: unless-stopped
+
   inngest:
-    command: inngest start -u http://app:8000/api/inngest --sqlite-dir /var/lib/inngest
+    command: inngest start -u http://worker:8000/api/inngest --sqlite-dir /var/lib/inngest
     environment:
       INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY:?set INNGEST_EVENT_KEY (make env-create makes one)}
       INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY:?set INNGEST_SIGNING_KEY (make env-create makes one)}
@@ -37,8 +77,53 @@ services:
   db:
     restart: unless-stopped
 
+  # Embeddings only (PRD 1.x, enrich): the Mac runs Ollama natively for its GPU, the server
+  # runs it here on the CPU. nomic-embed-text is 137M parameters, so one job description is
+  # tens of milliseconds and the model costs about 700 MB of RAM to keep resident.
+  ollama:
+    logging:
+      driver: local
+      options:
+        max-size: 50m
+        max-file: "5"
+    image: ollama/ollama:0.12.12
+    entrypoint: ["/bin/sh", "/ollama-entrypoint.sh"]
+    environment:
+      JAP_MODEL_EMBED: ${JAP_MODEL_EMBED:-nomic-embed-text}
+    volumes:
+      - ./docker/ollama-entrypoint.sh:/ollama-entrypoint.sh:ro
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list | grep -q ${JAP_MODEL_EMBED:-nomic-embed-text}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # The first start downloads the model (about 274 MB).
+      start_period: 300s
+    restart: unless-stopped
+
+  # JAP's own Cloudflare Tunnel (PRD H1, H6): one outbound connection, no router ports, no
+  # inbound port on the server at all. The public hostname lives in the Cloudflare dashboard
+  # (README, Hosting) and points at http://ui:8080, which is Caddy on this Docker network.
+  # Give the server its own tunnel, not the Mac's: two connectors on one tunnel would make
+  # Cloudflare share traffic between them, which during a cutover is the last thing you want.
+  cloudflared:
+    logging:
+      driver: local
+      options:
+        max-size: 50m
+        max-file: "5"
+    image: cloudflare/cloudflared:2025.10.0
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env.live (Cloudflare Zero Trust > Networks > Tunnels)}
+    depends_on:
+      - ui
+    restart: unless-stopped
+
   adminer:
     profiles: ["adminer"]
 
 volumes:
   inngest_data:
+  ollama_models:
