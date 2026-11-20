@@ -45,9 +45,11 @@ The UI follows the [redesign mockup v0.5](https://claude.ai/artifact/5V2SRvBgWZu
   hide a job but give each one a skills match.
 - **Insights**: jobs found and sent per week, results by job site, and AI spend (PRD 1.19).
 - **Settings**: applying (JAP prepares, I send; or JAP applies for me, with a daily limit
-  and a required-skills bar),
-  the daily search, Search history, AI usage, System status (backup and form check) and
-  Health (Daily search, stuck searches, errors, slow pages, disk, alerts sent).
+  and a required-skills bar) and what you have agreed JAP may do in your name, the daily
+  search and the time zone it runs in, Search history, AI usage, Your plan, Account
+  (password, two-step sign-in, Google, the privacy notice, Download my data, Delete my
+  account), System status (backup and form check) and Health (Daily search, stuck
+  searches, errors, slow pages, disk, alerts sent).
 
 Older names in this README map to the screen as follows: Not applied is **New**, Needs input
 is **Needs you**, Ready for review is **Ready to send**, Approve and submit is **Send

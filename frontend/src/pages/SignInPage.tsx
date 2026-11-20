@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 
 import { ApiError, auth, type AuthState, type User } from '../api/client'
 import { errorText } from '../format'
+import { googleOutcome, takeToken } from '../query'
 import PrivacyNotice from './PrivacyPage'
 
 // The screen shown before JAP opens (PRD S1 to S6, S10): create an account, sign in, the
@@ -106,18 +107,6 @@ function Field(props: {
   )
 }
 
-/** A token from an emailed link (?reset=... or ?verify=...), taken out of the address bar at once. */
-function takeToken(name: string): string | null {
-  const params = new URLSearchParams(window.location.search)
-  const token = params.get(name)
-  if (token) {
-    params.delete(name)
-    const rest = params.toString()
-    window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`)
-  }
-  return token
-}
-
 type TurnstileApi = {
   render: (el: HTMLElement, options: { sitekey: string; callback: (token: string) => void; 'expired-callback': () => void }) => string
   remove: (id: string) => void
@@ -171,7 +160,9 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
   const [password, setPassword] = useState('')
   const [again, setAgain] = useState('')
   const [code, setCode] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  // Back from Google with nobody signed in: it was refused, and saying so is the whole
+  // point of the ?google= on the way back (S16).
+  const [error, setError] = useState<string | null>(() => googleOutcome().problem)
   const [busy, setBusy] = useState(false)
 
   // The emailed link (S10): confirm the address and go in. The link works once, so this

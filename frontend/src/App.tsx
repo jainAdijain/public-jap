@@ -11,6 +11,7 @@ import PrivacyNotice from './pages/PrivacyPage'
 import ProfilePage from './pages/ProfilePage'
 import SettingsPage from './pages/SettingsPage'
 import SignInPage, { TermsTick } from './pages/SignInPage'
+import { googleOutcome } from './query'
 import { needsAttention, searching, useApp } from './appContext'
 import { go, VIEWS, type View } from './nav'
 import { AppProvider } from './store'
@@ -41,8 +42,15 @@ function nextSearch(at: string): string {
 
 function Shell() {
   const [view, setView] = useState<View>(() => viewOf(window.location.hash))
-  const { profile, summary, runs, health, healthError, ops } = useApp()
+  const { profile, summary, runs, health, healthError, ops, toast } = useApp()
   const { user, signOut } = useAuth()
+  // Back from Google while already signed in: Connect, from Settings (S16). Its answer
+  // rides on ?google=, so it has to be read here or a refusal would pass unmentioned.
+  useEffect(() => {
+    const { problem, done } = googleOutcome()
+    if (problem) toast({ text: problem, bad: true })
+    else if (done === 'connected') toast('Google is connected to this account.')
+  }, [toast])
   useEffect(() => {
     const onHash = () => {
       setView(viewOf(window.location.hash))
