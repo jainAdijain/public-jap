@@ -7,6 +7,15 @@ import { useAuth } from '../authContext'
 import AccountSection from './AccountSection'
 
 const hhmm = (t: string) => t.slice(0, 5)
+
+/** The IANA names to offer (U22): the browser's list where it has one, else enough of a
+ * list to pick from. The zone already saved is always in it, even on a browser that has
+ * since dropped the name, so a saved setting never silently reads as something else. */
+function zones(saved: string | null): string[] {
+  const supported = (Intl as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf
+  const all = supported ? supported('timeZone') : [Intl.DateTimeFormat().resolvedOptions().timeZone, 'UTC']
+  return saved && !all.includes(saved) ? [saved, ...all] : all
+}
 const size = (bytes: number) =>
   bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : bytes < 1024 ** 3 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${(bytes / 1024 ** 3).toFixed(1)} GB`
 
@@ -700,6 +709,20 @@ export default function SettingsPage() {
                   if (v) await flip({ daily_run_at: v }, `Daily search at ${v}.`)
                 }}
               />
+              {/* The zone that time is read in (U22), each account's own. */}
+              <select
+                aria-label="Time zone"
+                style={{ width: 'auto' }}
+                value={profile.tz ?? ''}
+                onChange={(e) => void flip({ tz: e.target.value || null }, `Daily search in ${e.target.value || 'the JAP server time zone'}.`)}
+              >
+                <option value="">Server time zone</option>
+                {zones(profile.tz).map((z) => (
+                  <option key={z} value={z}>
+                    {z}
+                  </option>
+                ))}
+              </select>
             </label>
             <input
               type="checkbox"
@@ -712,7 +735,7 @@ export default function SettingsPage() {
           </div>
           <p className="help">
             {profile.daily_run
-              ? `Every day at ${hhmm(profile.daily_run_at)}, JAP searches every company you follow${automatic ? ' and sends what it can' : ''}. It runs only while this computer is awake.`
+              ? `Every day at ${hhmm(profile.daily_run_at)} ${profile.tz ?? 'server time'}, JAP searches every company you follow${automatic ? ' and sends what it can' : ''}. It runs only while this computer is awake.`
               : 'Off: JAP searches only when you press Find new jobs, save Job preferences or use a new resume.'}
           </p>
         </div>

@@ -92,6 +92,22 @@ async def test_switches(api: httpx.AsyncClient) -> None:
         assert bad.status_code == 422
 
 
+async def test_time_zone_is_this_accounts_own(api: httpx.AsyncClient) -> None:
+    """U22. None means the service's zone, which is what every account had before."""
+    assert (await api.get("/api/profile")).json()["tz"] is None
+    saved = await api.patch("/api/profile", json={"tz": "Europe/Lisbon"})
+    assert saved.status_code == 200 and saved.json()["tz"] == "Europe/Lisbon"
+    bad = await api.patch("/api/profile", json={"tz": "Mars/Olympus_Mons"})
+    assert bad.status_code == 422
+    assert (await api.get("/api/profile")).json()["tz"] == "Europe/Lisbon"  # unchanged
+    # Saving Job preferences must not wipe it: that page PUTs the whole of ProfileIn and
+    # knows nothing about the zone, which is why tz is a switch and not a preference.
+    assert (await api.put("/api/profile", json=PROFILE)).status_code == 200
+    assert (await api.get("/api/profile")).json()["tz"] == "Europe/Lisbon"
+    back = await api.patch("/api/profile", json={"tz": None})
+    assert back.json()["tz"] is None  # back to the service's zone
+
+
 async def test_spend_shows_this_month(api: httpx.AsyncClient, sql: psycopg.Connection[Any]) -> None:
     sql.execute(
         "INSERT INTO llm_call (purpose, model, prompt_version, input_sha256, cost_usd, user_id) "

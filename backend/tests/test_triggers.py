@@ -167,6 +167,26 @@ async def test_daily_step_fires_once_when_on(
     assert last is not None and last[0] <= datetime.now(UTC)
 
 
+async def test_the_daily_search_goes_by_each_accounts_own_zone(
+    api: httpx.AsyncClient, other: httpx.AsyncClient, sql: psycopg.Connection[Any]
+) -> None:
+    """Two accounts asking for the same wall-clock hour in different zones (U22): only the
+    one whose zone says it is that time now fires."""
+    kolkata = datetime.now(IST)
+    hawaii = datetime.now(ZoneInfo("Pacific/Honolulu"))
+    assert kolkata.strftime("%H:%M") != hawaii.strftime("%H:%M")  # the zones differ by hours
+    for client, at, tz in (
+        (api, kolkata, "Asia/Kolkata"),
+        (other, kolkata, "Pacific/Honolulu"),  # the same clock time, read in another zone
+    ):
+        resp = await client.patch(
+            "/api/profile", json={"daily_run": True, "daily_run_at": at.strftime("%H:%M"), "tz": tz}
+        )
+        assert resp.status_code == 200, resp.text
+    me = (await api.get("/api/auth/me")).json()["id"]
+    assert [r["user_id"] for r in await daily_step()] == [me]  # not the Honolulu account
+
+
 async def test_a_queued_run_waits_for_that_users_own(db: str, sql: psycopg.Connection[Any]) -> None:
     """Inngest lets a queued run's first step start beside a running one; one of my own
     must still wait (T4). Both these runs are the owner's."""

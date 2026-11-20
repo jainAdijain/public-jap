@@ -78,6 +78,8 @@ export type Profile = ProfileFields & {
   /** Consent (S14). Without submit_opt_in nothing is ever sent; auto_opt_in gates Automatic. */
   submit_opt_in: boolean
   auto_opt_in: boolean
+  /** The zone daily_run_at is read in (U22). null: the service's own, shown as a fallback. */
+  tz: string | null
 }
 
 export type Resume = {
@@ -162,6 +164,8 @@ export type Switches = {
   apply_mode?: Profile['apply_mode']
   daily_run?: boolean
   daily_run_at?: string
+  /** An IANA name, or null to go back to the service's zone (U22). */
+  tz?: string | null
   daily_cap?: number
   auto_apply_min_skills?: number
   spend_cap_usd?: number

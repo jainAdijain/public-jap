@@ -69,6 +69,7 @@ async def to_out(session: AsyncSession, profile: Profile) -> ProfileOut:
         plan=plan_out(limits),
         submit_opt_in=profile.submit_opt_in_at is not None,
         auto_opt_in=profile.auto_opt_in_at is not None,
+        tz=profile.tz,  # U22; None means the service's JAP_TZ
     )
     return ProfileOut.model_validate(data)
 
@@ -134,6 +135,8 @@ async def flip_switches(body: ProfileSwitches, session: Session) -> ProfileOut:
         profile.daily_run = body.daily_run
     if body.daily_run_at is not None:
         profile.daily_run_at = body.daily_run_at.replace(second=0, microsecond=0, tzinfo=None)
+    if "tz" in body.model_fields_set:  # null is a real value here: back to the service's zone
+        profile.tz = body.tz
     if body.daily_cap is not None:
         profile.daily_cap = body.daily_cap
     if body.auto_apply_min_skills is not None:

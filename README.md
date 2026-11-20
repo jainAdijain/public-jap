@@ -299,18 +299,29 @@ job in Berlin. Runs skip demo boards; `make demo-clear` removes them.
 ## What starts a run
 
 Four things start a run. A run is one account's: it fetches the companies that account
-follows and applies with its settings. Only one run is active at a time across the whole
-service, so runs take turns. A trigger that fires during a run queues one run behind it for
-that account; more triggers join that queued run instead of adding another (a role-scoped
-ask widens the queued run's scope).
+follows and applies with its settings.
+
+**Searches go side by side, one per account** (PRD T6). Two people searching at the same
+time both start; your own second search waits for your first. `JAP_MAX_PARALLEL_RUNS` (3)
+is the ceiling on how many different accounts search at once, and the rest wait their turn.
+A trigger that fires during your run queues one run behind it for you; more triggers join
+that queued run instead of adding another (a role-scoped ask widens the queued run's scope).
+
+A company is shared, so a board fetched for one account within `JAP_BOARD_FRESH_MINUTES`
+(10) is not fetched again for the next: the second search reuses it and the run counts it
+under `boards_fresh`. The reading is not skipped with it — who wants a job title is worked
+out at fetch time, so an account that followed the company since, or that has just added a
+target role, still gets its descriptions read.
 
 - **Find new jobs** on Jobs: every company you follow. The arrow beside it searches for only
   some job titles and can also apply to the new jobs that fit (see Applying). The companies
   are still fetched whole, because their jobs are shared with anyone else who follows them;
   the titles narrow what the run applies for.
-- **Daily search**: the switch in Settings, at 06:00 in `JAP_TZ` unless you change the time
-  next to it. An Inngest cron ticks every minute and fires once per day in the first five
-  minutes after that time, so a run missed while the Mac sleeps is skipped, not caught up.
+- **Daily search**: the switch in Settings, at 06:00 unless you change the time next to it,
+  **in your own time zone** — the select beside the time (PRD U22). Server time zone means
+  `JAP_TZ`, which is what every account used before it could say. An Inngest cron ticks
+  every minute and fires once per day in the first five minutes after that time, so a run
+  missed while the Mac sleeps is skipped, not caught up.
 - **Job preferences saved**: the stored listings are re-filtered at once, then a fetch follows
   in the background; new matching jobs appear on Jobs without a reload. Saving only contact
   details or the cover letter style on Profile starts no search.
