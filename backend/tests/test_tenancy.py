@@ -207,6 +207,7 @@ async def test_another_users_ids_answer_not_found_on_every_route(
         ("POST", f"/api/admin/accounts/{NOBODY}/off", None),
         ("POST", f"/api/admin/accounts/{NOBODY}/on", None),
         ("PUT", f"/api/admin/accounts/{NOBODY}/limits", {"ai_usd": 100}),
+        ("DELETE", f"/api/admin/accounts/{NOBODY}", None),
     ]
     from main import app
 

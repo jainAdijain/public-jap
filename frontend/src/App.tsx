@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { auth, NEEDS_TERMS_EVENT, SIGNED_OUT_EVENT, type AuthState, type User } from './api/client'
 import { AuthCtx, useAuth } from './authContext'
+import { DeleteMyAccount, ExportMyData } from './components/YourData'
 import { ago, errorText, plural } from './format'
 import InsightsPage from './pages/InsightsPage'
 import JobsPage from './pages/JobsPage'
@@ -128,9 +129,10 @@ function Shell() {
  * The agreement screen (PRD S14), for an account made before this notice or before there
  * was one. New accounts tick the same box at sign-up, so this is only ever seen once.
  */
-function TermsGate({ version, onAccepted, onSignOut }: { version: string; onAccepted: (u: User) => void; onSignOut: () => void }) {
+function TermsGate({ user, version, onAccepted, onSignOut }: { user: User; version: string; onAccepted: (u: User) => void; onSignOut: () => void }) {
   const [agreed, setAgreed] = useState(false)
   const [reading, setReading] = useState(false)
+  const [leaving, setLeaving] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   if (reading) {
@@ -177,6 +179,19 @@ function TermsGate({ version, onAccepted, onSignOut }: { version: string; onAcce
         <button type="button" className="btn-link" onClick={onSignOut}>
           Sign out instead
         </button>
+        <hr className="rule" />
+        {/* Not agreeing has to lead somewhere (S15), or the tick above is the only way out. */}
+        <p className="help">Don't want to agree? Your data is still yours to take or delete.</p>
+        {leaving ? (
+          <DeleteMyAccount user={user} onDeleted={() => window.location.replace('/')} />
+        ) : (
+          <div className="inline">
+            <ExportMyData onProblem={setError} />
+            <button type="button" className="btn-link btn-danger" onClick={() => setLeaving(true)}>
+              Delete my account
+            </button>
+          </div>
+        )}
       </div>
     </main>
   )
@@ -229,7 +244,8 @@ export default function App() {
   }
   if (!state) return null
   if (!state.user) return <SignInPage state={state} onSignedIn={setUser} />
-  if (!state.user.terms_accepted) return <TermsGate version={state.terms_version} onAccepted={setUser} onSignOut={() => void signOut()} />
+  if (!state.user.terms_accepted)
+    return <TermsGate user={state.user} version={state.terms_version} onAccepted={setUser} onSignOut={() => void signOut()} />
   return (
     <AuthCtx.Provider value={{ user: state.user, setUser, signOut }}>
       <AppProvider>

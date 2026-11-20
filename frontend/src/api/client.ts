@@ -394,6 +394,26 @@ export const auth = {
       json('POST', { email, password, turnstile: turnstile ?? null, accept_terms: true, terms_version: termsVersion }),
     ),
   acceptTerms: (termsVersion: string) => request<User>('/api/auth/terms', json('POST', { terms_version: termsVersion })),
+  /**
+   * Everything JAP holds about this account, as a zip (S15). Not through request(), which
+   * parses JSON: this one is a file, saved straight to the browser's downloads.
+   */
+  exportMyData: async (): Promise<void> => {
+    const resp = await fetch(`${API_URL}/api/account/export`, { credentials: 'include' })
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => null)
+      throw new ApiError(resp.status, body?.error?.code ?? 'error', body?.error?.message ?? `API answered ${resp.status}`)
+    }
+    const url = URL.createObjectURL(await resp.blob())
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `jap-${new Date().toISOString().slice(0, 10)}.zip`
+    link.click()
+    URL.revokeObjectURL(url)
+  },
+  /** Delete this account and everything private about it, at once and for good (S15). */
+  deleteMyAccount: (password: string, confirmEmail: string, code: string) =>
+    request<{ deleted: boolean }>('/api/account/delete', json('POST', { password, confirm_email: confirmEmail, code })),
   verify: (token: string) => request<SignInResult>('/api/auth/verify', json('POST', { token })),
   resendVerification: (email: string) => request<{ queued: boolean }>('/api/auth/verify/resend', json('POST', { email })),
   signIn: (email: string, password: string) => request<SignInResult>('/api/auth/sign-in', json('POST', { email, password })),

@@ -167,6 +167,33 @@ on a form in their name. Each of those is said plainly and agreed to before it h
   reads the opt-in again at the last moment, and fails the attempt rather than sending it.
   Applications already sent cannot be unsent.
 
+## Your data, back or gone
+
+Both are in **Settings > Account** (PRD S15), and both work even for an account that has
+*not* agreed to the current notice — otherwise refusing it would leave a person with no way
+out, and the agreement screen offers them too.
+
+- **Download my data** is a zip: `profile.json`, `resumes.json`, `answers.json`,
+  `applications.json`, `searches.json`, `companies-followed.json`, `jobs.json`,
+  `ai-spend.json`, every file those rows point at under `files/`, and a `README.txt` saying
+  what each one is. One file per private table, so a table added later cannot be left out
+  of it (a test walks `tenant.PRIVATE_TABLES` and fails otherwise). Jobs, companies and
+  postings are shared facts about the job market, so only your side of them is in it.
+- **Delete my account** asks for your password, your two-step code when that is on, and
+  your own address typed out. Then it is gone at once: every private row, the files with
+  it, no grace period and no undo. The address can sign up again afterwards and starts
+  empty. The admin's account cannot be deleted, and the admin can delete anyone else's for
+  a user who asks by email.
+- Deleting an Applied application is normally refused outright (A2). Erasure is the single
+  exception, through a flag set with `SET LOCAL` inside that one transaction (migration
+  `0016_erasure`); every other statement still meets the rule.
+- Two things outlive a deletion, and the notice says so: `llm_call` rows keep what each AI
+  call cost with the `user_id` nulled and `billed_to` set to `deleted` (no name, no text —
+  it is what the OpenRouter bill is counted from), and `log_event` lines keep the service's
+  own record, also with the user nulled, already scrubbed and already deleted after 30 days.
+- A company nobody follows once you are gone is switched off and its postings closed, the
+  same as unfollowing it by hand.
+
 ## Personal data and models
 
 No name, email, phone, address or profile link is sent to any model. `backend/llm/redact.py`

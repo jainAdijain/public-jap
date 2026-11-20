@@ -3,6 +3,7 @@ import { useState, type FormEvent } from 'react'
 import { auth, type TwoStepSetup } from '../api/client'
 import { useApp } from '../appContext'
 import { useAuth } from '../authContext'
+import { DeleteMyAccount, ExportMyData } from '../components/YourData'
 import { errorText } from '../format'
 import PrivacyNotice from './PrivacyPage'
 
@@ -228,6 +229,19 @@ export default function AccountSection() {
             <PrivacyNotice />
           </div>
         </details>
+
+        <hr className="rule" />
+
+        {/* Your data, back or gone (S15). Both are yours to do, at any time. */}
+        <div className="inline spread">
+          <span>
+            <b>Your data</b> <span className="muted">· a zip of everything JAP holds about you</span>
+          </span>
+          <ExportMyData onProblem={(text) => toast({ text, bad: true })} />
+        </div>
+        <p className="help">Your profile, resumes, answers, applications, searches and files, with a note saying what each one is.</p>
+        {/* The account is gone, so there is no state left to update: start again at sign-in. */}
+        <DeleteMyAccount user={user} onDeleted={() => window.location.replace('/')} />
 
         <hr className="rule" />
 

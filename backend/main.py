@@ -5,6 +5,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api import (
+    account,
     admin,
     answers,
     applications,
@@ -22,7 +23,7 @@ from api import (
     runs,
 )
 from auth import guards
-from auth.deps import admin_user, agreed_user
+from auth.deps import admin_user, agreed_user, current_user
 from config import get_settings
 from functions import ALL_FUNCTIONS, inngest_client
 from observability.http import RequestLog
@@ -54,9 +55,13 @@ for module in (
     profile, resumes, boards, answers, runs, postings, listings, applications, insights,
 ):  # fmt: skip
     app.include_router(module.router, prefix="/api", dependencies=[Depends(agreed_user)])
+# Getting your data back and deleting your account are the exception: a signed-in session is
+# enough, agreed or not, or refusing the notice would leave a person with no way out (S15).
+app.include_router(account.router, prefix="/api", dependencies=[Depends(current_user)])
 # The service as a whole is the admin's: health, backups, form tests, duplicates, accounts
 # (PRD S12). To anyone else these routes are Not Found.
 for module in (ops, duplicates, admin):
     app.include_router(module.router, prefix="/api", dependencies=[Depends(admin_user)])
+app.include_router(account.admin_router, prefix="/api", dependencies=[Depends(admin_user)])
 
 inngest.fast_api.serve(app, inngest_client, ALL_FUNCTIONS, serve_path="/api/inngest")

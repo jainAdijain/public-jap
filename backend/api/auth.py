@@ -248,7 +248,7 @@ async def sign_in(
     return SignInResult(signed_in=True, two_step=False, user=user_out(user))
 
 
-def _use_code(user: AppUser, code: str) -> bool:
+def use_code(user: AppUser, code: str) -> bool:
     """True when code is the app's code now or an unused recovery code (used up here)."""
     assert user.totp_secret is not None
     step = totp.matching_step(user.totp_secret, code, user.totp_last_step)
@@ -276,7 +276,7 @@ async def sign_in_code(
     if user is None or user.totp_secret is None:
         raise ApiError(401, "two_step_expired", "Sign-in timed out. Enter your password again.")
     _locked(user)
-    if not _use_code(user, body.code):
+    if not use_code(user, body.code):
         pending.code_tries += 1
         if pending.code_tries >= sessions.TWO_STEP_TRIES:
             await session.delete(pending)
@@ -381,7 +381,9 @@ async def reset(body: Reset, session: Session) -> None:
     await session.commit()
 
 
-async def _check_password(session: AsyncSession, user: AppUser, password: str) -> None:
+async def check_password(session: AsyncSession, user: AppUser, password: str) -> None:
+    """The account's own password, with the same lockout as signing in. Shared with
+    api/account.py, which asks for it before deleting everything (S15)."""
     _locked(user)
     if not await passwords.verify_password(password, user.password_hash):
         await _failed(session, user)
@@ -393,7 +395,7 @@ async def change_password(
     body: PasswordChange, user: CurrentUser, current: CurrentSession, session: Session
 ) -> None:
     """Change the password (S7). Every other browser is signed out."""
-    await _check_password(session, user, body.current_password)
+    await check_password(session, user, body.current_password)
     _new_password(body.new_password)
     user.password_hash = await passwords.hash_password(body.new_password)
     user.password_changed_at = sessions.now()
@@ -433,7 +435,7 @@ async def two_step_confirm(body: Code, user: CurrentUser, session: Session) -> R
 
 @router.post("/two-step/off", status_code=204)
 async def two_step_off(body: Password, user: CurrentUser, session: Session) -> None:
-    await _check_password(session, user, body.password)
+    await check_password(session, user, body.password)
     user.totp_secret = None
     user.totp_pending_secret = None
     user.totp_last_step = None
@@ -444,7 +446,7 @@ async def two_step_off(body: Password, user: CurrentUser, session: Session) -> N
 @router.post("/two-step/recovery-codes", response_model=RecoveryCodes)
 async def new_recovery_codes(body: Password, user: CurrentUser, session: Session) -> RecoveryCodes:
     """New recovery codes; the old ones stop working."""
-    await _check_password(session, user, body.password)
+    await check_password(session, user, body.password)
     if user.totp_secret is None:
         raise ApiError(409, "two_step_off", "Two-step sign-in is off")
     codes = totp.new_recovery_codes()

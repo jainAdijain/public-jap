@@ -7,8 +7,8 @@
 // top says so, and stays until he removes it. Changing what the notice *says* means raising
 // TERMS_VERSION in backend/auth/consent.py, which asks everyone again.
 //
-// It says what JAP does *today*, never what is planned: "Your data, back or gone" goes back
-// to naming Export and Delete my account when those are in Settings > Account (IDEA-5).
+// It says what JAP does *today*, never what is planned. Check each claim against the code
+// before changing it: "Your data, back or gone" names two buttons that have to be there.
 
 export const NOTICE_IS_A_DRAFT = true
 
@@ -65,8 +65,9 @@ export default function PrivacyNotice() {
 
       <Para title="Your data, back or gone">
         <p>
-          Ask the operator and you will be sent everything JAP holds about you — your profile, resumes, answers, applications, searches and files — or have all of it deleted, the files with it, for good.
-          Taking that back by yourself, from Settings &gt; Account, is being built.
+          <b>Download my data</b> gives you a zip of everything JAP holds about you: your profile, resumes, answers, applications, searches, the jobs that matched you and every file. <b>Delete my account</b>{' '}
+          removes all of it, and the files with it, at once and for good — there is no undo, and nothing is kept to restore from. Both are in Settings &gt; Account, and both are there even if you decide
+          not to agree to this notice.
         </p>
         <p>
           One thing is kept after a deletion: the record of what each AI call cost, with nothing in it that points at you — no name, no text, only the purpose, the model and the amount. It is what the running cost
