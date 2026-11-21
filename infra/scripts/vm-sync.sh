@@ -85,7 +85,9 @@ notify() {
 # Runs on the VM. Prints `running <name>` for a checkout whose stack is up there and
 # `changed <name>: <why>` for one that was touched there since its stamp.
 read -r -d '' REMOTE_CHECK << 'EOF' || true
-dest=$HOME/$1; shift
+dest=$HOME/$1; mode=$2; shift 2
+# Without ENV=live the other .env.* files are not synced, so the VM's own are not a change.
+skip='.env.*'; [ "$mode" = live ] && skip='.vm-sync-nothing'
 running=$(docker ps --format '{{.Label "com.docker.compose.project.working_dir"}}' 2> /dev/null || true)
 for name in "$@"; do
   dir=$dest/$name; stamp=$dest/.vm-sync/$name
@@ -97,7 +99,8 @@ for name in "$@"; do
   files=$(cd "$dir" && find . \( -name .git -o -name node_modules -o -name '.venv*' \
     -o -name __pycache__ -o -name .mypy_cache -o -name .ruff_cache -o -name .pytest_cache \
     -o -path ./data -o -path ./data-live -o -path ./frontend/dist -o -path ./frontend/.vite \) \
-    -prune -o -type f -cnewer "$stamp" ! -name '*.tsbuildinfo' ! -name .DS_Store -print \
+    -prune -o -type f -cnewer "$stamp" ! -name '*.tsbuildinfo' ! -name .DS_Store \
+    \( -name .env.example -o -name .env.tunnel.example -o ! -name "$skip" \) -print \
     | head -4 | tr '\n' ' ')
   [ -z "$files" ] || echo "changed $name: $files"
 done
@@ -141,7 +144,7 @@ sync_repo() {
   # Called as `sync_repo || ...`, where `set -e` does not apply: each step is checked here.
   # ssh hands the remote shell one string, so each argument is quoted for it: a checkout's
   # name may hold a space.
-  report=$($SSH "$HOST" "bash -s -- $(printf '%q ' "$DEST" "${names[@]}")" <<< "$REMOTE_CHECK") || {
+  report=$($SSH "$HOST" "bash -s -- $(printf '%q ' "$DEST" "$MODE" "${names[@]}")" <<< "$REMOTE_CHECK") || {
     say "FAILED: could not ask the VM about $main"; return 1
   }
   changed=$(sed -n 's/^changed //p' <<< "$report")
