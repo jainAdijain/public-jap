@@ -24,6 +24,8 @@ from typing import Any
 
 from playwright.async_api import Error, FilePayload, Page, async_playwright
 
+from config import get_settings
+
 NAV_TIMEOUT_MS = 30_000
 SETTLE_TIMEOUT_MS = 15_000
 RECHECK_MS = 1_000
@@ -178,11 +180,24 @@ async def _open_page(page: Page, url: str) -> Page:
     return page
 
 
+def launch_args() -> dict[str, Any]:
+    """What every application browser is started with (IDEA-18).
+
+    Today that is nothing, and an application leaves from the server's own address. Many
+    names arriving from one address is what makes a service look like a bot, so the seam
+    is here and switching it on is a setting: JAP_APPLY_PROXY. Playwright takes a proxy
+    per browser, so this can become a different address per user when the per-site rates
+    on Settings say it is needed, rather than a rebuild.
+    """
+    proxy = get_settings().jap_apply_proxy.strip()
+    return {"proxy": {"server": proxy}} if proxy else {}
+
+
 async def read_form(url: str, screenshot: Path | None = None) -> FormRead:
     """Every field on the form. When the form can't be read, the page as it was is kept at
     `screenshot` (when given) so a Failed job shows what JAP saw."""
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch()
+        browser = await pw.chromium.launch(**launch_args())
         page: Page | None = None
         try:
             page = await browser.new_page()
@@ -451,7 +466,7 @@ async def submit_form(
     screenshot.parent.mkdir(parents=True, exist_ok=True)
     trace.parent.mkdir(parents=True, exist_ok=True)
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch()
+        browser = await pw.chromium.launch(**launch_args())
         context = await browser.new_context()
         await context.tracing.start(screenshots=True, snapshots=True)
         page = await context.new_page()

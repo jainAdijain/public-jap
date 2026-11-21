@@ -21,6 +21,7 @@ from api import (
     duplicates,
     errors,
     health,
+    inbound,
     insights,
     listings,
     ops,
@@ -43,7 +44,7 @@ RUNS_FUNCTIONS = ("all", "worker")
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="JAP", version="0.21.0")
+    app = FastAPI(title="JAP", version="0.22.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -58,6 +59,9 @@ def create_app() -> FastAPI:
     # Open without a session: /api/health (service status only) and the sign-in routes (S6).
     app.include_router(health.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
+    # A mail service cannot sign in, so the inbound route carries a shared secret of its
+    # own instead of a session, and is off entirely without one (IDEA-16, api/inbound.py).
+    app.include_router(inbound.router, prefix="/api")
     # Everything else needs a signed-in session that has agreed to the notice as it stands,
     # and works on that user's own data (PRD S6, S7, S14).
     for module in (

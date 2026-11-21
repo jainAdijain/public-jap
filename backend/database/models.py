@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     Numeric,
     SmallInteger,
     Text,
@@ -97,6 +98,9 @@ class Profile(Timestamps, Base):
     daily_run_at: Mapped[time] = mapped_column(Time, server_default="06:00")
     daily_run_last_at: Mapped[datetime | None]
     daily_cap: Mapped[int] = mapped_column(Integer, server_default="20")
+    # IDEA-17: this account's sending stopped, without turning the account off or taking
+    # back its consent. The global switch is JAP_SUBMIT_ENABLED.
+    submit_paused: Mapped[bool] = mapped_column(Boolean, server_default="false")
     # F6: Automatic mode applies only at or above this share of my required skills.
     auto_apply_min_skills: Mapped[int] = mapped_column(SmallInteger, server_default="60")
     spend_cap_usd: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))  # None: .env cap
@@ -329,6 +333,10 @@ class Application(Timestamps, Base):
     submit_started_at: Mapped[datetime | None]
     submitted_at: Mapped[datetime | None]
     email_sent_at: Mapped[datetime | None]
+    # A5, IDEA-16: when the site asked for the code it emailed, and the code itself while
+    # the form waits for it. Cleared the moment the form takes it, and never logged.
+    code_wanted_at: Mapped[datetime | None]
+    security_code: Mapped[str | None] = mapped_column(Text)
     review_reason: Mapped[str | None] = mapped_column(Text)  # why Automatic mode still waits
     alert_sent_at: Mapped[datetime | None]
     inngest_run_id: Mapped[str | None] = mapped_column(Text)
@@ -373,6 +381,20 @@ class LlmCall(Timestamps, Base):
     billed_to: Mapped[str] = mapped_column(Text, server_default="system")
 
 
+class UserSecret(Timestamps, Base):
+    """One account's own API key, sealed (IDEA-19). The key is never here in the clear:
+    llm/secrets.py opens it with the master key from the environment."""
+
+    __tablename__ = "user_secret"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    kind: Mapped[str] = mapped_column(Text, primary_key=True, server_default="openrouter")
+    ciphertext: Mapped[bytes] = mapped_column(LargeBinary)
+    nonce: Mapped[bytes] = mapped_column(LargeBinary)
+    # The last four characters, so a person can tell which key is saved.
+    hint: Mapped[str] = mapped_column(Text, server_default="")
+
+
 class FormCheck(Timestamps, Base):
     """One weekly live form test: a real open posting's form read, nothing submitted."""
 
@@ -408,6 +430,9 @@ class AppUser(Timestamps, Base):
     totp_pending_secret: Mapped[str | None] = mapped_column(Text)
     totp_last_step: Mapped[int | None] = mapped_column(BigInteger)
     recovery_codes: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default="{}")
+    # IDEA-16: this account's own forwarding address for the codes a job site emails,
+    # jap+<code_token>@... None until they ask for one.
+    code_token: Mapped[str | None] = mapped_column(Text)
     password_changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -546,12 +546,26 @@ async def daily_cap(session: AsyncSession) -> int:
     return (await limits_for(session, tenant.user_id(session))).applications_per_day
 
 
-async def wait_before_submit(session: AsyncSession, now: datetime) -> datetime | None:
-    """cap-check and the gap (A1), both the session user's own: when submitting must wait
-    until, or None to go now."""
+async def ats_of(session: AsyncSession, app: Application) -> str | None:
+    """Which job site this application is to, for the pacing that is per site."""
+    return await session.scalar(select(Posting.source).where(Posting.id == app.posting_id))
+
+
+async def wait_before_submit(
+    session: AsyncSession, now: datetime, ats: str | None = None
+) -> datetime | None:
+    """When submitting must wait until, or None to go now.
+
+    Four things can say no. Two are this account's own (A1): its daily cap, and 30 seconds
+    since its own last application. Two are the service's, because a job site sees the
+    service and not one user (IDEA-17): a gap between any two applications to the same
+    site, and a ceiling on what everyone together sends in a day. The service-wide pair
+    read through functions that return a number and never a row (migration 0020), so one
+    account still cannot see another's applications."""
     settings = get_settings()
+    tomorrow = local_midnight(now, await my_tz(session)) + timedelta(days=1, minutes=1)
     if await applied_today(session, now) >= await daily_cap(session):
-        return local_midnight(now, await my_tz(session)) + timedelta(days=1, minutes=1)
+        return tomorrow
     last: datetime | None = await session.scalar(
         select(func.max(Application.submitted_at)).where(
             Application.user_id == tenant.user_id(session)
@@ -560,6 +574,20 @@ async def wait_before_submit(session: AsyncSession, now: datetime) -> datetime |
     gap = timedelta(seconds=settings.jap_apply_gap_seconds)
     if last is not None and now - last < gap:
         return last + gap
+
+    ceiling = settings.jap_daily_applications_total
+    if ceiling > 0:
+        since = local_midnight(now, get_settings().jap_tz)
+        sent = await session.scalar(text("SELECT jap_applied_today(:since)"), {"since": since})
+        if int(sent or 0) >= ceiling:
+            return tomorrow
+    site_gap = timedelta(seconds=settings.jap_apply_ats_gap_seconds)
+    if ats and site_gap:
+        site_last: datetime | None = await session.scalar(
+            text("SELECT jap_last_submit(:ats)"), {"ats": ats}
+        )
+        if site_last is not None and now - site_last < site_gap:
+            return site_last + site_gap
     return None
 
 
@@ -586,10 +614,17 @@ async def submit(session: AsyncSession, app_id: str) -> dict[str, Any]:
     if not await consent.may_submit_for(session, app.user_id):
         await fail(session, app, consent.NEEDS_SUBMIT)
         return {"status": "failed"}
-    until = await wait_before_submit(session, now)
+    ats = await ats_of(session, app)
+    until = await wait_before_submit(session, now, ats)
     if until is not None:
         await session.rollback()
         return {"wait_until": until.isoformat()}
+    # IDEA-17: this account's own sending is paused. Not a failure and not a refusal of
+    # consent — it waits, the same as the daily cap does.
+    profile = await profile_of(session)
+    if profile is not None and profile.submit_paused:
+        await session.rollback()
+        return {"wait_until": (now + timedelta(hours=1)).isoformat(), "paused": True}
     if app.submit_started_at is not None:
         await fail(session, app, "Submit outcome unknown: check the employer's site by hand")
         return {"status": "failed"}
@@ -614,17 +649,28 @@ async def submit(session: AsyncSession, app_id: str) -> dict[str, Any]:
     trace = storage.user_path(app.user_id, "traces", f"{app_id}.zip")
     site = security_code.site_of(url)
     settings = get_settings()
-    # Only the admin's mailbox is read (A5): the code a job site emails goes to the address
-    # on the form, and JAP can open only its own mailbox, which is the admin's.
+    # A5, IDEA-16: every account can finish a form that asks for a code, not only the
+    # admin. The mailbox is read when there is one, and only for mail addressed to this
+    # account's own forwarding token so two people waiting cannot be crossed; an account
+    # with no token reads the mailbox unfiltered, which is right only on a single-user
+    # stack and is why the admin keeps working as before. Whatever the mailbox does, the
+    # person can type the code in, so get_code is always given.
     account = await session.get(AppUser, app.user_id)
-    reads_mail = (
-        site is not None
-        and bool(settings.email_from and settings.email_password)
-        and account is not None
-        and account.is_admin
+    token = account.code_token if account else None
+    reads_mail = bool(settings.email_from and settings.email_password) and (
+        token is not None or bool(account and account.is_admin)
     )
-    get_code = security_code.waiter(site) if reads_mail and site else None
+    get_code = (
+        security_code.waiter(site, app_id, token, reads_mail=reads_mail)
+        if site is not None
+        else None
+    )
     result = await submit_form(url, fields, answers, files, shot, trace, get_code)
+    # IDEA-17: what each job site did with it. These rates are what say whether the
+    # service is being treated as a bot, and so whether IDEA-18 is needed.
+    event(log, "apply.outcome", f"{ats or 'unknown'} answered the submission", keep=True,
+          ats=ats or "unknown", confirmed=result.confirmed, rejected=result.rejected,
+          needs_code=result.needs_code, clicked=result.clicked)  # fmt: skip
     app = await _app(session, app_id, lock=True)
     if not result.clicked:
         event(log, "apply.submit_retry", f"Submit not pressed: {result.error}",
@@ -642,6 +688,10 @@ async def submit(session: AsyncSession, app_id: str) -> dict[str, Any]:
     submitted = datetime.now(UTC)
     app.status = "applied"
     app.submitted_at = submitted
+    # The code has done its work. This is the same statement that freezes the row, so it
+    # is the last chance to take it off (A5, IDEA-16).
+    app.security_code = None
+    app.code_wanted_at = None
     app.screenshot_path = str(shot) if result.screenshot else None
     app.trace_path = str(trace) if trace.exists() else None
     app.pending_questions = None
@@ -661,6 +711,8 @@ async def fail(session: AsyncSession, app: Application, error: str) -> None:
     event(log, "apply.failed", f"Application failed: {error}", level=logging.WARNING, keep=True)
     app.status = "failed"
     app.error = error[:1000]
+    app.security_code = None  # it is no use now, and it is not ours to keep (IDEA-16)
+    app.code_wanted_at = None
     await set_status(session, app.listing_id, "failed")
     if app.run_id:
         await bump(session, app.run_id, "failed")

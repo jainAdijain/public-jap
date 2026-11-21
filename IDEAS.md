@@ -30,11 +30,11 @@ limits, is built on the `tenancy` branch and is not listed.
 | [IDEA-12](#idea-12--no-adminer-and-no-user-content-for-the-admin-on-the-public-stack) | 3 | Built (v0.21.0) | No Adminer, and no user content for the admin, on the public stack |
 | [IDEA-13](#idea-13--request-hardening) | 3 | Built (v0.21.0) | Request hardening |
 | [IDEA-14](#idea-14--a-retention-period-for-traces-and-screenshots) | 3 | Built (v0.21.0) | A retention period for traces and screenshots |
-| [IDEA-15](#idea-15--applications-side-by-side-across-worker-machines) | 4 | Open | Applications side by side across worker machines |
-| [IDEA-16](#idea-16--a-security-code-address-for-each-user) | 4 | Open | A security-code address for each user |
-| [IDEA-17](#idea-17--pacing-for-submissions-across-all-users) | 4 | Open | Pacing for submissions across all users |
-| [IDEA-18](#idea-18--an-outbound-address-for-each-user) | 4 | Open | An outbound address for each user |
-| [IDEA-19](#idea-19--bring-your-own-openrouter-key) | 4 | Open | Bring your own OpenRouter key |
+| [IDEA-15](#idea-15--applications-side-by-side-across-worker-machines) | 4 | Built (v0.22.0) | Applications side by side across worker machines |
+| [IDEA-16](#idea-16--a-security-code-address-for-each-user) | 4 | Built (v0.22.0) | A security-code address for each user |
+| [IDEA-17](#idea-17--pacing-for-submissions-across-all-users) | 4 | Built (v0.22.0) | Pacing for submissions across all users |
+| [IDEA-18](#idea-18--an-outbound-address-for-each-user) | 4 | Part built (v0.22.0) | An outbound address for each user |
+| [IDEA-19](#idea-19--bring-your-own-openrouter-key) | 4 | Built (v0.22.0) | Bring your own OpenRouter key |
 | [IDEA-20](#idea-20--a-decision-on-job-site-blocking-and-terms-of-use) | 4 | Open | A decision on job-site blocking and terms of use |
 | [IDEA-21](#idea-21--paid-plans) | 5 | Open | Paid plans |
 | [IDEA-22](#idea-22--a-browser-extension-that-submits-from-the-users-own-machine) | 5 | Open | A browser extension that submits from the user's own machine |
@@ -179,16 +179,23 @@ Traces and screenshots are deleted after a fixed period instead of being kept fo
 
 ## IDEA-15 — Applications side by side across worker machines
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 4).
+**Status:** Built (v0.22.0). Recorded 17 Nov 2026, from the public-jap plan (Phase 4).
 
 Applications go one at a time for the whole service. One browser per user, a maximum per worker
 machine, several workers. Capacity is browsers times applications per browser-hour, and the time
 one application takes is to be measured, not assumed: 2 minutes was a guess, under which 150
 users sending 20 each need about 10 browsers for 10 hours.
 
+One browser per account and `JAP_APPLY_BROWSERS` across the service, as two concurrency
+limits on `apply-listing`. It shipped with IDEA-16, not after it: the single slot was what
+had been keeping the shared mailbox safe, so raising it without per-account codes would
+have let two people be handed each other's code. The time one application takes is now
+measured rather than guessed (`make capacity`), which is what the browser count should be
+sized from.
+
 ## IDEA-16 — A security-code address for each user
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 4).
+**Status:** Built (v0.22.0). Recorded 17 Nov 2026, from the public-jap plan (Phase 4).
 
 Greenhouse emails a code to the applicant, and `security_code.py` takes the newest such mail
 after Submit, which with several users waiting can hand one user another's code. Each user gets
@@ -197,40 +204,93 @@ was sent to and by arriving after that user's Submit. Typing the code in the UI 
 fallback. To test first: which header carries the recipient after a forward depends on the mail
 provider; an inbound-email service that reports the recipient is the alternative.
 
+All three routes, and a form takes whichever answers first: the account's own forwarding
+address matched on the recipient, an inbound-email service posting to `/api/inbound/email`,
+and the person typing the code in. The header question the entry raised was answered by
+not choosing: every header a forward might keep is read. Worth knowing for later — before
+this, a non-admin account could not finish a Greenhouse form that asked for a code at all,
+which was a gap in applying and not only a risk of crossing codes.
+
 ## IDEA-17 — Pacing for submissions across all users
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 4).
+**Status:** Built (v0.22.0). Recorded 17 Nov 2026, from the public-jap plan (Phase 4).
 
 On top of each user's daily cap and 30-second gap: a throttle per ATS, a global daily ceiling,
 applications spread across the day, and a per-user kill switch next to the global
 `JAP_SUBMIT_ENABLED`. CAPTCHA, security-code and failure rates per site are watched, since they
 say when IDEA-18 is needed.
 
+A gap per ATS, a ceiling for the whole service, and Pause sending per account, beside the
+cap and 30-second gap each account already had. The service-wide pair read through
+`jap_last_submit` and `jap_applied_today`, which return a number and never a row, so one
+account still cannot see another's applications. Each site's answers — confirmed, refused,
+asked for a code — are counted per ATS on Settings; those rates are the evidence IDEA-18
+waits for. Spreading applications evenly across the day was *not* built: the ceiling and
+the gaps do the same work more simply, and a schedule would fight the daily search.
+
 ## IDEA-18 — An outbound address for each user
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 4).
+**Status:** Part built (v0.22.0): the seam is in, the addresses are not. Recorded
+17 Nov 2026, from the public-jap plan (Phase 4).
 
 Every application leaves from the server's one IP, so many names from one address look like a
 bot. Playwright can use a different proxy per browser, so each user can be given a stable
 outbound address. It keeps automatic mode, costs money per user, and some sites block known
 proxy ranges. Build the option in early so switching it on is a setting.
 
+v0.22.0 did that last part and no more: `launch_args()` in `pipeline/apply/form.py` is the
+one place either browser is started, and `JAP_APPLY_PROXY` is empty, so applications still
+leave from the server. Turning it on for everyone is a setting; an address *per user* is
+the work left, and it is deliberately not done yet because it costs money per account and
+nothing yet says it is needed. What would say so is now being recorded: the refused and
+asked-for-a-code rates per ATS (IDEA-17), on Settings.
+
 ## IDEA-19 — Bring your own OpenRouter key
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 4).
+**Status:** Built (v0.22.0). Recorded 17 Nov 2026, from the public-jap plan (Phase 4).
 
 A user's own key pays for their personal AI work instead of the free quota. A `user_secret`
 table holding AES-GCM ciphertext under a master key from the environment (adds `cryptography`);
 `llm_call.billed_to` already has `byok` in mind.
 
+`user_secret` holds the key as AES-GCM ciphertext under `JAP_SECRET_KEY`, with the account
+and kind bound in so a row moved to another account will not open. The part the entry did
+not foresee: spend accounting had to change too. `billed_to='byok'` is left out of the
+user's allowance, out of `jap_spend()` and so out of both the shared budget and the total,
+because that money is not on JAP's OpenRouter bill.
+
 ## IDEA-20 — A decision on job-site blocking and terms of use
 
-**Status:** Open; Aditya's call, needed before Phase 4 ships. Recorded 17 Nov 2026, from the
-public-jap plan.
+**Status:** Open; Aditya's call. Still open after v0.22.0, which built the rest of Phase 4
+and the means to answer it. Recorded 17 Nov 2026, from the public-jap plan.
 
 Server-side submission for many users risks being blocked and may breach the job sites' terms on
 automated submission. Code reduces the first and does not settle the second. Whether the sites'
 official submit APIs are open to anyone but the employer was not verified.
+
+Read on 21 Nov 2026, and none of it is legal advice:
+
+- **The submit APIs are not open.** Lever documents `POST /v0/postings/SITE/POSTING-ID`,
+  and it takes the **employer's** API key. So there is no sanctioned path for a third
+  party, and that half of the question is answered: no.
+- **Whose terms they are.** Lever's and Ashby's terms of service are agreements with the
+  **employer** who buys the product, not with the candidate; neither has a candidate-facing
+  clause about applying automatically. Greenhouse's clause (z), "use automated means,
+  including spiders, robots, crawlers", is in the **account holder** agreement on
+  `my.greenhouse.io`. JAP applies on the public board with no account, and
+  `job-boards.greenhouse.io/robots.txt` has its disallow lines commented out. The clause
+  that would bite is (s), misrepresenting identity — which argues for JAP being open about
+  being a tool acting for a named person, not for hiding it.
+- **Ashby boards have bot detection** the employer can set from No Protection to Strict.
+  It is a real mechanism and will refuse submissions that look automated, which is exactly
+  what IDEA-17's per-site counters now watch.
+- **The line the industry draws** is human-in-the-loop versus fully autonomous. That maps
+  onto JAP's own Review and Automatic modes, so this is as much a product decision as a
+  legal one — and both already sit behind their own opt-in (S14, v0.20.0), so no account
+  applies automatically without having said so.
+
+What is left to decide: whether Automatic mode is offered to the public at all, and what
+the terms page says JAP does on someone's behalf. Nothing in the code is waiting on it.
 
 ## IDEA-21 — Paid plans
 

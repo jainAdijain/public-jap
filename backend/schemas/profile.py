@@ -1,6 +1,6 @@
 """My profile: what the UI reads and saves (U7 to U10)."""
 
-from datetime import time
+from datetime import datetime, time
 from typing import Literal
 from zoneinfo import available_timezones
 
@@ -103,6 +103,27 @@ class Spend(BaseModel):
     reached: bool
 
 
+class ApiKey(BaseModel):
+    """A user's own OpenRouter key as Settings shows it (IDEA-19). Never the key itself."""
+
+    # False when JAP_SECRET_KEY is unset: no key can be saved on this stack.
+    available: bool
+    set: bool
+    hint: str = ""  # the last four characters of the saved key
+    saved_at: datetime | None = None
+
+
+class SaveApiKey(BaseModel):
+    api_key: str = Field(min_length=16, max_length=400)
+
+
+class CodeAddress(BaseModel):
+    """Where this account's mail filter should forward security-code emails (IDEA-16)."""
+
+    address: str | None  # None until they ask for one
+    mailbox: bool  # whether this JAP has a mailbox to forward to at all
+
+
 class Plan(BaseModel):
     """What this account may use (PRD S12), as Settings shows it."""
 
@@ -125,6 +146,8 @@ class ProfileOut(ProfileIn):
     # Consent (S14): JAP may apply in my name, and may do it without asking.
     submit_opt_in: bool = False
     auto_opt_in: bool = False
+    # IDEA-17: sending paused for this account; applications wait rather than fail.
+    submit_paused: bool = False
     # The zone the daily search goes by (U22). None: the service's JAP_TZ, which is what
     # every account used before they could say.
     tz: str | None = None
@@ -155,6 +178,9 @@ class ProfileSwitches(BaseModel):
     # the second with it, and turns Automatic mode off.
     submit_opt_in: bool | None = None
     auto_opt_in: bool | None = None
+    # IDEA-17: pause or resume this account's sending. Not consent and not the account
+    # being off: prepared applications wait, and carry on when it goes back.
+    submit_paused: bool | None = None
 
     @field_validator("tz")
     @classmethod

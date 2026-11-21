@@ -292,6 +292,40 @@ function Shot({ app, alt }: { app: Application; alt: string }) {
   )
 }
 
+/** The code a job site emailed (A5, IDEA-16).
+ *
+ * Greenhouse emails an 8-character code and holds the application until it is typed in.
+ * JAP watches its own mailbox for it, which needs a mail filter set up once; this box is
+ * the route that always works, and the only one on a JAP with no mailbox. The form is
+ * open and waiting while this shows, so there are a few minutes to answer, not hours. */
+function SecurityCodeBox({ app, busy, act }: { app: Application; busy: boolean; act: (fn: () => Promise<void>) => void }) {
+  const [code, setCode] = useState('')
+  const ok = /^[A-Za-z0-9]{4,16}$/.test(code.trim())
+  return (
+    <div className="note-box attn" role="status">
+      <b>The employer emailed you a code.</b> Check your email for a message from the job site and type the code here. The form is open and waiting, so do it now if you can.
+      <div className="inline" style={{ marginTop: 8 }}>
+        <label htmlFor="sec-code">Code</label>
+        <input id="sec-code" type="text" autoComplete="one-time-code" spellCheck={false} style={{ width: 160 }} value={code} onChange={(e) => setCode(e.target.value)} />
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={busy || !ok}
+          onClick={() =>
+            act(async () => {
+              await api.securityCode(app.id, code.trim())
+              setCode('')
+            })
+          }
+        >
+          Send code
+        </button>
+      </div>
+      <span className="help">If JAP already found the code in its own mailbox it will carry on by itself and this box disappears.</span>
+    </div>
+  )
+}
+
 export default function JobDrawer({ id, onClose, onOpen, onApply }: Props) {
   const { profile, refresh, toast } = useApp()
   const [listing, setListing] = useState<ListingDetail | null>(null)
@@ -397,9 +431,15 @@ export default function JobDrawer({ id, onClose, onOpen, onApply }: Props) {
     } else if (live?.status === 'applying') {
       body = (
         <>
-          <div className="note-box" role="status">
-            Sending the application… A screenshot of the confirmation follows.
-          </div>
+          {live.code_wanted ? (
+            // A5, IDEA-16: the site emailed a code and the form is open waiting for it.
+            // JAP watches its mailbox too, so this box is the way that always works.
+            <SecurityCodeBox app={live} busy={busy} act={(fn) => void act(fn)} />
+          ) : (
+            <div className="note-box" role="status">
+              Sending the application… A screenshot of the confirmation follows.
+            </div>
+          )}
           {common}
         </>
       )
