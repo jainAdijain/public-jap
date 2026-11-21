@@ -1,6 +1,6 @@
 import { useEffect, useState, type InputHTMLAttributes, type ReactNode } from 'react'
 
-import { admin, api, type Account, type Accounts, type Run, type Status, type Switches } from '../api/client'
+import { admin, api, type Account, type Accounts, type ApiKey, type Capacity, type CodeAddress, type Run, type Status, type Switches } from '../api/client'
 import { atsLabel, errorText, money, planWords, STARTED_BY, when } from '../format'
 import { useApp } from '../appContext'
 import { useAuth } from '../authContext'
@@ -430,6 +430,195 @@ function LimitsForm({ account, save, close }: { account: Account; save: (l: { ai
   )
 }
 
+/** Your own OpenRouter key (IDEA-19). Paste it and your work is billed to it instead of
+ * your JAP allowance. It is write-only: once saved, only the last four characters come
+ * back, because JAP keeps it encrypted and does not hand it out again. */
+function OwnKeyCard() {
+  const { toast } = useApp()
+  const [key, setKey] = useState<ApiKey | null>(null)
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    api.apiKey().then(setKey, () => setKey(null))
+  }, [])
+  const act = async (fn: () => Promise<ApiKey>, done: string) => {
+    setBusy(true)
+    try {
+      setKey(await fn())
+      setDraft('')
+      toast(done)
+    } catch (err) {
+      toast({ text: errorText(err), bad: true })
+    }
+    setBusy(false)
+  }
+  if (!key?.available) return null
+  return (
+    <>
+      <div className="inline spread">
+        <span>
+          {key.set ? (
+            <>
+              Your own OpenRouter key is in use, ending <span className="mono">{key.hint}</span>. Your JAP allowance is not touched.
+            </>
+          ) : (
+            <>Using JAP&apos;s key and the allowance above.</>
+          )}
+        </span>
+        {key.set && (
+          <button type="button" className="btn-link" disabled={busy} onClick={() => void act(api.clearApiKey, 'Key removed. Back to JAP’s key and your allowance.')}>
+            Remove
+          </button>
+        )}
+      </div>
+      <label className="inline">
+        {key.set ? 'Replace with' : 'Use my own key'}
+        <input type="password" autoComplete="off" spellCheck={false} placeholder="sk-or-v1-…" value={draft} onChange={(e) => setDraft(e.target.value)} style={{ width: 260 }} />
+        <button type="button" disabled={busy || draft.trim().length < 16} onClick={() => void act(() => api.saveApiKey(draft.trim()), 'Saved. Your work is billed to your own key now.')}>
+          Save
+        </button>
+      </label>
+      <span className="muted small">
+        Get one at openrouter.ai. JAP stores it encrypted and never shows it again. Your own spending is yours to watch: JAP stops counting it against the limit above.
+      </span>
+    </>
+  )
+}
+
+/** The address this account's mail filter should forward security-code emails to
+ * (IDEA-16). Greenhouse emails a code and holds the application until it is typed in;
+ * with an address of their own, a code is matched to the person it was sent to and never
+ * to whoever happened to submit last. Typing it in always works, so this is an
+ * improvement rather than a requirement. */
+function CodeAddressCard() {
+  const { toast } = useApp()
+  const [data, setData] = useState<CodeAddress | null>(null)
+  useEffect(() => {
+    api.codeAddress().then(setData, () => setData(null))
+  }, [])
+  if (!data?.mailbox) return null
+  return (
+    <>
+      {data.address ? (
+        <>
+          <span>
+            Forward security-code emails to <span className="mono">{data.address}</span>.
+          </span>
+          <span className="muted small">
+            Make one filter in your email: from the job site, forward to that address. JAP then knows a code is yours. Until you do, you can type each code in on the job instead.
+          </span>
+        </>
+      ) : (
+        <div className="inline spread">
+          <span>Codes some employers email can reach JAP by themselves.</span>
+          <button
+            type="button"
+            onClick={() =>
+              void api.makeCodeAddress().then(
+                (d) => {
+                  setData(d)
+                  toast('Address created. Add the filter in your email.')
+                },
+                (err) => toast({ text: errorText(err), bad: true }),
+              )
+            }
+          >
+            Get my address
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
+/** How long applying takes, for the admin (IDEA-15). The per-application figure is the one
+ * to plan with: a submit that is only waiting on the cap returns before opening a browser,
+ * which drags that step's median down. */
+function CapacityCard() {
+  const [data, setData] = useState<Capacity | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  useEffect(() => {
+    api.capacity().then(setData, (err) => setFailed(errorText(err)))
+  }, [])
+  const secs = (ms: number | null) => (ms === null ? '—' : `${(ms / 1000).toFixed(1)} s`)
+  return (
+    <div className="sec">
+      <div className="sec-l">
+        <h2>How long applying takes</h2>
+        <p>Measured from the steps JAP already records, over the last {data?.days ?? 30} days. It is what decides how many applications can run side by side.</p>
+      </div>
+      <div className="sec-r">
+        {failed && <p className="error-text">{failed}</p>}
+        {data && data.applications === 0 && <p className="muted">No applications yet, so there is nothing to measure.</p>}
+        {data && data.applications > 0 && (
+          <>
+            <table className="hist">
+              <thead>
+                <tr>
+                  <th>Step</th>
+                  <th>Ran</th>
+                  <th>Median</th>
+                  <th>90th</th>
+                  <th>Worst</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.steps.map((s) => (
+                  <tr key={s.step}>
+                    <td>{s.step}</td>
+                    <td>{s.n}</td>
+                    <td>{secs(s.median_ms)}</td>
+                    <td>{secs(s.p90_ms)}</td>
+                    <td>{secs(s.worst_ms)}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td>
+                    <b>Per application</b>
+                  </td>
+                  <td>{data.applications}</td>
+                  <td>{secs(data.median_ms)}</td>
+                  <td>{secs(data.p90_ms)}</td>
+                  <td>{secs(data.worst_ms)}</td>
+                </tr>
+              </tbody>
+            </table>
+            <span className="muted small">One browser gets through about {data.per_browser_hour} applications an hour; capacity is that times the browsers running at once.</span>
+          </>
+        )}
+        {data && data.sites.length > 0 && (
+          <>
+            <h3>What each site did with them</h3>
+            <table className="hist">
+              <thead>
+                <tr>
+                  <th>Site</th>
+                  <th>Sent</th>
+                  <th>Confirmed</th>
+                  <th>Refused</th>
+                  <th>Asked for a code</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.sites.map((s) => (
+                  <tr key={s.ats}>
+                    <td>{atsLabel(s.ats)}</td>
+                    <td>{s.submissions}</td>
+                    <td>{s.confirmed}</td>
+                    <td>{s.rejected}</td>
+                    <td>{s.needs_code}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <span className="muted small">Refusals or code requests climbing on a site means it is reading JAP as a bot rather than as the people using it.</span>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /** Accounts (PRD S12), for the admin: who has one, turning one off, pausing sign-up, and
  * what the AI has cost this month. Nothing a user wrote is shown here. */
 function AccountsCard() {
@@ -733,6 +922,27 @@ export default function SettingsPage() {
               onChange={(e) => void flip({ daily_run: e.target.checked }, e.target.checked ? `Daily search is on, at ${hhmm(profile.daily_run_at)}.` : 'Daily search is off.')}
             />
           </div>
+          {/* IDEA-17: stop sending without withdrawing consent or turning the account
+              off. Prepared applications wait, and go when it is turned back on. */}
+          <div className="inline spread">
+            <label className="inline" htmlFor="pause-sending">
+              Pause sending
+            </label>
+            <input
+              id="pause-sending"
+              type="checkbox"
+              role="switch"
+              className="sw"
+              checked={profile.submit_paused}
+              onChange={(e) => void flip({ submit_paused: e.target.checked }, e.target.checked ? 'Sending paused. Nothing more goes out until you turn it back on.' : 'Sending is on again.')}
+            />
+          </div>
+          <p className="help">
+            {profile.submit_paused
+              ? 'Paused: applications are still prepared, and wait instead of being sent. Nothing is lost.'
+              : 'Applications are sent as usual. Pausing holds them without giving up what you have agreed to.'}
+          </p>
+          <CodeAddressCard />
           <p className="help">
             {profile.daily_run
               ? `Every day at ${hhmm(profile.daily_run_at)} ${profile.tz ?? 'server time'}, JAP searches every company you follow${automatic ? ' and sends what it can' : ''}. It runs only while this computer is awake.`
@@ -782,6 +992,7 @@ export default function SettingsPage() {
                 ? 'When the limit is reached, JAP stops writing answers and letters for you until next month, and a banner shows on Jobs.'
                 : 'When the limit is reached, JAP stops writing answers and letters for you until next month, and a banner shows on Jobs. You can lower the limit, not raise it above your plan.'}
           </span>
+          <OwnKeyCard />
         </div>
       </div>
 
@@ -791,6 +1002,7 @@ export default function SettingsPage() {
       {user.is_admin && (
         <>
           <AccountsCard />
+          <CapacityCard />
           <SystemStatus />
           <Health />
         </>

@@ -17,8 +17,10 @@ from database.models import FormCheck
 from database.session import Session
 from functions.events import send
 from observability import status as health
+from observability.capacity import DEFAULT_DAYS
+from observability.capacity import capacity as read_capacity
 from pipeline import backup, form_check, storage
-from schemas.ops import BackupOut, FormCheckOut, Ops
+from schemas.ops import BackupOut, Capacity, FormCheckOut, Ops
 from schemas.status import Status
 
 router = APIRouter(prefix="/ops", tags=["ops"])
@@ -55,6 +57,16 @@ async def status(session: Session) -> Status:
     """Settings > Status (PRD O5): daily search, stuck searches, errors, slow routes, disk,
     spend and recent health alerts."""
     return await health.status(session)
+
+
+@router.get("/capacity", response_model=Capacity)
+async def capacity(session: Session, days: int = DEFAULT_DAYS) -> Capacity:
+    """How long an application takes and how many fit in a browser-hour (IDEA-15), from
+    the step durations already in log_event. The window cannot usefully exceed the 30 days
+    those are kept."""
+    if not 1 <= days <= 30:
+        raise ApiError(422, "bad_window", "Ask for between 1 and 30 days")
+    return await read_capacity(session, days)
 
 
 @router.post("/health-check", status_code=202)

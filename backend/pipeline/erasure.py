@@ -74,17 +74,26 @@ FILES: dict[str, str] = {
     "board_follow": "companies-followed.json",
     "user_listing": "jobs.json",
     "llm_call": "ai-spend.json",
+    "user_secret": "api-keys.json",
 }
 
 # Left out of the export: a hash of what was sent to a model tells the reader nothing and
 # is not a fact about them. Everything else in every table is theirs and goes in.
-LEAVE_OUT: dict[str, tuple[str, ...]] = {"llm_call": ("input_sha256",)}
+LEAVE_OUT: dict[str, tuple[str, ...]] = {
+    "llm_call": ("input_sha256",),
+    # A code a job site emailed, while a form is waiting for it (IDEA-16). It is gone
+    # seconds later and is a credential, not a fact about the person.
+    "application": ("security_code",),
+    # The sealed key and its nonce are not a fact about the person, and handing back
+    # ciphertext would be worse than useless. The hint and the dates say a key was set.
+    "user_secret": ("ciphertext", "nonce"),
+}
 
 # Deleted outright, in an order the foreign keys allow: an application points at its run
 # and its resume version, so it goes before both.
 DELETE_ORDER = (
     "application", "run", "user_listing", "board_follow", "answer_bank", "resume_version",
-    "profile",
+    "profile", "user_secret",
 )  # fmt: skip
 # Kept, with the person taken out of them (the module docstring says why).
 ANONYMISED = ("llm_call",)
@@ -231,6 +240,8 @@ def _readme(data: dict[str, list[dict[str, Any]]], email: str, made_at: datetime
         "companies-followed.json": "The companies you follow.",
         "jobs.json": "Every job that matched you: the skills match, your status, when you applied.",
         "ai-spend.json": "What each AI call cost, and what it was for. Never what was sent.",
+        "api-keys.json": "Which of your own API keys are saved, and when. Never the keys "
+        "themselves: they are encrypted and are not handed back.",
         "files/": "Your resumes, the cover letters written for you, and a screenshot and "
         "recording of each form JAP filled in.",
     }

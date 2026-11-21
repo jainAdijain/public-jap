@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # application costs about 2 to 3 cents of AI, so one a day is under $1 a month.
     jap_free_boards: int = 1
     jap_free_daily_applications: int = 1
+    # The master key that seals a user's own OpenRouter key (IDEA-19, llm/secrets.py):
+    # 32 bytes, base64. Empty means nobody can save one and the screen says so. Losing it
+    # loses every saved key, and users paste theirs again.
+    jap_secret_key: str = ""
 
     # The mailbox JAP sends from (E4): any SMTP server with a password, GoDaddy Professional
     # Email by default. A local test mailbox can take plain SMTP (SMTP_SSL=false) instead.
@@ -49,6 +53,9 @@ class Settings(BaseSettings):
     smtp_ssl: bool = True
     smtp_username: str = ""
     smtp_password: str = ""
+    # The shared secret an inbound-email service sends with a posted message (IDEA-16,
+    # api/inbound.py), in the X-JAP-Inbound header. Empty: that route answers 404.
+    jap_inbound_secret: str = ""
     # The same mailbox read over IMAP for a security code a job site emails (A5).
     imap_host: str = "imap.secureserver.net"
     imap_port: int = 993
@@ -111,8 +118,23 @@ class Settings(BaseSettings):
     # Where the confirmation email links back to (the frozen JD in the side panel).
     jap_ui_url: str = "http://localhost:5173"
 
-    # Apply (A1): at least this many seconds between two submissions.
+    # Apply (A1): at least this many seconds between two of one account's submissions.
     jap_apply_gap_seconds: int = 30
+    # Pacing across every account (IDEA-17). A job site sees the service, not one user:
+    # this is the gap between any two applications to the same ATS, and the ceiling on
+    # what the whole service sends in a day under each account's own cap. 0 turns either
+    # off. Raise the ceiling as more workers are added, not before.
+    jap_apply_ats_gap_seconds: int = 60
+    jap_daily_applications_total: int = 200
+    # How many application browsers may be open across the service at once (IDEA-15).
+    # Each holds a worker and a few hundred MB, so raise it with the worker count, and
+    # measure first: `make capacity` says how long one application really holds a browser.
+    jap_apply_browsers: int = 4
+    # An outbound proxy for the application browser (IDEA-18), as Playwright takes it:
+    # http://user:pass@host:port. Empty means the server's own address, which is what
+    # every application leaves from today. Watch the per-site rates on Settings before
+    # turning this on; it costs money and some sites block known proxy ranges.
+    jap_apply_proxy: str = ""
 
     # Sign-in (PRD S1 to S5). Secure cookies need HTTPS: true on dev, test and prod hosts.
     jap_cookie_secure: bool = False

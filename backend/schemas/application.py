@@ -81,6 +81,9 @@ class ApplicationOut(BaseModel):
     has_trace: bool
     # Failed after Submit was pressed, outcome unknown: Retry asks me to check first
     submit_pressed: bool = False
+    # A5, IDEA-16: the site is asking for the code it emailed, and the form is waiting.
+    # Never the code itself, only that one is wanted.
+    code_wanted: bool = False
 
 
 class AnswersIn(BaseModel):
@@ -101,6 +104,12 @@ class RetryIn(BaseModel):
     """I checked the employer's site: the earlier Submit did not go through."""
 
     checked: bool = False
+
+
+class SecurityCodeIn(BaseModel):
+    """The code a job site emailed, typed in by the person it was sent to (IDEA-16)."""
+
+    code: str = Field(min_length=4, max_length=16, pattern=r"^\s*[A-Za-z0-9]{4,16}\s*$")
 
 
 class ApplyQueued(BaseModel):
