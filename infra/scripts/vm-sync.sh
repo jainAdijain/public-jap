@@ -23,7 +23,8 @@
 # Where the VM is stays out of the repository, which is public:
 #   ~/.config/jap/vm-sync.conf   JAP_VM_HOST=<ssh alias>
 #                                JAP_VM_DIR=<folder under its home, default projects>
-#                                JAP_VM_SYNC_EXTRA="<other checkouts to sync, by path>"
+#                                JAP_VM_SYNC_EXTRA="<other checkouts to sync, by path, with a
+#                                                   colon between them as in PATH>"
 #                                JAP_VM_TUNNEL=<ssh alias whose LocalForward lines carry the
 #                                               stacks' ports, so localhost:<port> on the
 #                                               Mac is the stack on the VM>
@@ -61,7 +62,7 @@ case "$MODE" in local | live) ;; *) echo "ENV must be local or live" >&2; exit 1
 [ -n "$HOST" ] || { echo "No VM is configured. Put JAP_VM_HOST=<ssh alias> in $CONF" >&2; exit 1; }
 
 # Never synced: what a build or a tool makes, and each side's own data folders.
-FILTERS=(--exclude=.venv/ --exclude=node_modules/ --exclude=__pycache__/ --exclude=.mypy_cache/
+FILTERS=(--exclude='.venv*/' --exclude=node_modules/ --exclude=__pycache__/ --exclude=.mypy_cache/
   --exclude=.ruff_cache/ --exclude=.pytest_cache/ --exclude=frontend/dist/
   --exclude=frontend/.vite/ --exclude='*.tsbuildinfo' --exclude=.DS_Store
   --exclude='/*/data/' --exclude='/*/data-live/')
@@ -93,7 +94,7 @@ for name in "$@"; do
   if [ "$(git -C "$dir" rev-parse HEAD 2> /dev/null)" != "$(cat "$stamp")" ]; then
     echo "changed $name: a commit or a checkout made on the VM"; continue
   fi
-  files=$(cd "$dir" && find . \( -name .git -o -name node_modules -o -name .venv \
+  files=$(cd "$dir" && find . \( -name .git -o -name node_modules -o -name '.venv*' \
     -o -name __pycache__ -o -name .mypy_cache -o -name .ruff_cache -o -name .pytest_cache \
     -o -path ./data -o -path ./data-live -o -path ./frontend/dist -o -path ./frontend/.vite \) \
     -prune -o -type f -cnewer "$stamp" ! -name '*.tsbuildinfo' ! -name .DS_Store -print \
@@ -125,7 +126,7 @@ sync_repo() {
   while read -r d; do
     [ -e "$d/.git" ] || continue
     name=$(basename "$d")
-    case "$name" in *[!A-Za-z0-9._-]*) say "skipped $d: a name the VM cannot take"; continue ;; esac
+    case "$name" in *[!A-Za-z0-9._\ -]*) say "skipped $d: a name the VM cannot take"; continue ;; esac
     dirs+=("$d") && names+=("$name")
     # A worktree's .git is a file holding a Mac path, and the main checkout holds the path
     # back; both are written on the VM instead.
@@ -138,7 +139,9 @@ sync_repo() {
   excludes+=("--exclude=/$main/.git/worktrees/*/gitdir")
 
   # Called as `sync_repo || ...`, where `set -e` does not apply: each step is checked here.
-  report=$($SSH "$HOST" bash -s -- "$DEST" "${names[@]}" <<< "$REMOTE_CHECK") || {
+  # ssh hands the remote shell one string, so each argument is quoted for it: a checkout's
+  # name may hold a space.
+  report=$($SSH "$HOST" "bash -s -- $(printf '%q ' "$DEST" "${names[@]}")" <<< "$REMOTE_CHECK") || {
     say "FAILED: could not ask the VM about $main"; return 1
   }
   changed=$(sed -n 's/^changed //p' <<< "$report")
@@ -155,7 +158,7 @@ sync_repo() {
     notify "The sync of $main failed; see $LOG"
     return 1
   }
-  $SSH "$HOST" bash -s -- "$DEST" "$main" ${pairs[@]+"${pairs[@]}"} <<< "$REMOTE_STAMP" || {
+  $SSH "$HOST" "bash -s -- $(printf '%q ' "$DEST" "$main" ${pairs[@]+"${pairs[@]}"})" <<< "$REMOTE_STAMP" || {
     say "FAILED: could not leave the stamp for $main on the VM"; return 1
   }
   count=$(sed -n 's/^Number of files transferred: //p' <<< "$out")
@@ -165,7 +168,7 @@ sync_repo() {
     grep -qx "running $name" <<< "$report" && continue
     for sub in $DATA_DIRS; do
       if [ -d "$d/$sub" ]; then
-        rsync -a -u -e "$SSH" --exclude=.DS_Store "$d/$sub" "$HOST:$DEST/$name/" || {
+        rsync -a -u -e "$SSH" --exclude=.DS_Store "$d/$sub" "$HOST:$DEST/${name// /\\ }/" || {
           say "FAILED: $name/$sub did not finish; the next run continues it"; return 1
         }
       fi
@@ -178,7 +181,7 @@ sync_repo() {
 }
 
 sync_all() {
-  local repo failed=0
+  local repo failed=0 extras=()
   # A run that was killed leaves its lock; an hour is far longer than any run takes.
   find "$LOCK" -maxdepth 0 -mmin +60 -exec rmdir {} \; 2> /dev/null || true
   mkdir "$LOCK" 2> /dev/null || { [ -n "$AUTO" ] || echo "Another vm-sync is running."; exit 0; }
@@ -192,8 +195,8 @@ sync_all() {
     echo "Cannot reach $HOST over ssh." >&2
     exit 1
   fi
-  # shellcheck disable=SC2086
-  for repo in "$ROOT" ${JAP_VM_SYNC_EXTRA:-}; do
+  IFS=: read -r -a extras <<< "${JAP_VM_SYNC_EXTRA:-}"
+  for repo in "$ROOT" ${extras[@]+"${extras[@]}"}; do
     sync_repo "$repo" || failed=1
   done
   [ "$failed" = 0 ] && rm -f "$BLOCKED"
