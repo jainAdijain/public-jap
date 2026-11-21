@@ -695,6 +695,7 @@ afterwards, because Turnstile is the only third-party script JAP loads.
 | `make test` | ruff, mypy, pytest for app; lint and build for ui; the coding-agent guards (`make test-agents`) |
 | `make setup-host` / `make test-host` | The same checks without the Docker stack, for cloud sandboxes: set up `.venv`, Chromium, `node_modules` and a Postgres once, then run them |
 | `make worktree NAME=...` | A sibling worktree on its own branch with its own stack, ports and `data/`, for an agent working alongside you; `worktree-list` and `worktree-remove NAME=...` go with it |
+| `make vm-sync` | Mirror this checkout, its worktrees and the checkouts named in `~/.config/jap/vm-sync.conf` to the VM that runs their Docker stacks: code and `.env`, one way, never the databases. It refuses when the VM's copy was changed there (`FORCE=1` overwrites); `ENV=live` adds live's files. `vm-sync-auto` does it every two minutes by launchd, `vm-sync-auto-off` stops that, `vm-ps` lists every container on the VM by stack, and `vm-tunnel` keeps the stacks' ports forwarded so `localhost:<port>` on the Mac is the stack on the VM (`vm-tunnel-off` drops that) |
 | `make hooks` | Turn on the pre-commit check for this clone: refuses secrets files, `docs/`, `data/` and anything that looks like a key |
 | `make backup` / `make restore FILE=...` | Dump to / restore from `data/backups/` (the app also makes one every day) |
 | `make backup-pull SERVER=...` | Copy the server's newest dump to this Mac: the one backup that does not live with the server |

@@ -46,7 +46,7 @@ COMPOSE_FILES := -f infra/compose.yaml $(if $(RELEASE),-f infra/compose.release.
 COMPOSE := docker compose -p $(JAP_PROJECT) --env-file $(ENV_FILE) $(COMPOSE_FILES)
 
 .DEFAULT_GOAL := help
-.PHONY: help env deploy tunnel-status start stop restart reset clean logs ps migrate seed test test-app test-ui test-agents test-host setup-host hooks worktree worktree-list worktree-remove qa backup backup-pull restore close-unfollowed form-check health-check errors two-step-off sign-out-all set-password email-test code-mail-check ollama-check llm-check demo demo-clear
+.PHONY: help env deploy tunnel-status start stop restart reset clean logs ps migrate seed test test-app test-ui test-agents test-host setup-host hooks worktree worktree-list worktree-remove vm-sync vm-sync-auto vm-sync-auto-off vm-ps vm-tunnel vm-tunnel-off qa backup backup-pull restore close-unfollowed form-check health-check errors two-step-off sign-out-all set-password email-test code-mail-check ollama-check llm-check demo demo-clear
 
 help: ## List the targets
 	@grep -hE '^[a-z-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-13s %s\n", $$1, $$2}'
@@ -162,6 +162,30 @@ worktree-list: ## The worktrees and the ports each one's stack uses
 
 worktree-remove: ## Remove a worktree, its stack and its data; the branch is kept (asks first)
 	@infra/scripts/worktree-remove.sh "$(NAME)"
+
+# ---- Stacks on a VM ----
+#
+# The Mac is where the code is edited; a VM can be where Docker runs it. These mirror every
+# checkout to that VM (infra/scripts/vm-sync.sh says what crosses and what does not). Where
+# the VM is lives in ~/.config/jap/vm-sync.conf, not here: this repository is public.
+
+vm-sync: ## Mirror the checkouts on this Mac to the VM that runs their stacks (ENV=live adds live's files; FORCE=1 overwrites work done there)
+	@VM_SYNC_ENV=$(ENV) FORCE=$(FORCE) infra/scripts/vm-sync.sh
+
+vm-sync-auto: ## Do that every two minutes from now on, by launchd (ENV=live includes live's files)
+	@VM_SYNC_ENV=$(ENV) infra/scripts/vm-sync.sh auto-on
+
+vm-sync-auto-off: ## Stop the automatic sync, as when the VM's copy becomes the one that is edited
+	@infra/scripts/vm-sync.sh auto-off
+
+vm-ps: ## Every container on the VM by stack, running or not
+	@infra/scripts/vm-sync.sh ps
+
+vm-tunnel: ## Keep the VM stacks' ports forwarded to this Mac, so localhost:<port> is the stack on the VM
+	@infra/scripts/vm-sync.sh tunnel-on
+
+vm-tunnel-off: ## Drop those forwards
+	@infra/scripts/vm-sync.sh tunnel-off
 
 qa: ## Dedup QA set: place ~100 labelled job pairs and print the accuracy
 	$(COMPOSE) exec app pytest -q -s tests/test_dedup_qa.py

@@ -167,6 +167,30 @@ make test-host              # the same checks as make test, run on this machine
 - Do not run `make start` in a second checkout on the Mac to get a stack for tests: without its
   own `.env` it takes the project name and ports of the stack that is already running.
 
+### Stacks on a VM
+
+Docker can run on a VM instead of this Mac, with the Mac still the place the code is edited.
+`infra/scripts/vm-sync.sh` says exactly what crosses; in short:
+
+```
+make vm-sync                # mirror this checkout, its worktrees and the extra checkouts to the VM
+make vm-sync-auto           # the same every two minutes, by launchd; vm-sync-auto-off stops it
+make vm-ps                  # every container on the VM by stack, running or not
+make vm-tunnel              # keep the stacks' ports forwarded here; vm-tunnel-off drops them
+```
+
+- Where the VM is lives in `~/.config/jap/vm-sync.conf` (`JAP_VM_HOST`, an ssh alias; `JAP_VM_DIR`;
+  `JAP_VM_SYNC_EXTRA`, other checkouts to carry). This repo is public: never write the VM's
+  address into a tracked file.
+- It is one way, Mac to VM: code with deletions, and `.env`. `data/` is added to only while
+  that checkout's stack is not running on the VM. Databases never cross. A new dependency or
+  a migration still needs `make start` or `make migrate` run on the VM.
+- A sync refuses a repository whose VM copy was changed since the last one, and names the
+  file. Do not edit on the VM while the job is on, and do not pass `FORCE=1` without being
+  asked: it overwrites that work.
+- `ENV=live` adds live's own files (`.env.*`, `data-live/`). Like everything with `ENV=live`,
+  that is not for an agent to run.
+
 ### Do not run without being asked
 
 `make reset` (wipes the database), `make clean` (removes volumes and images), and anything that
