@@ -31,11 +31,16 @@ def _spend(spent: float, cap: float) -> Spend:
 
 
 async def month_spend(session: AsyncSession, user_id: uuid.UUID | None = None) -> Spend:
-    """One user's spend this month against their allowance: the session's user unless named."""
+    """One user's spend this month against their allowance: the session's user unless named.
+
+    Work paid for with the user's own key (billed_to 'byok', IDEA-19) is left out: the
+    allowance is JAP's money, and theirs is not rationed by it."""
     uid = user_id or tenant.user_id(session)
     total = await session.scalar(
         select(func.coalesce(func.sum(LlmCall.cost_usd), 0)).where(
-            LlmCall.user_id == uid, LlmCall.created_at >= month_start(get_settings().jap_tz)
+            LlmCall.user_id == uid,
+            LlmCall.billed_to != "byok",
+            LlmCall.created_at >= month_start(get_settings().jap_tz),
         )
     )
     return _spend(float(total or 0), (await limits_for(session, uid)).ai_usd)

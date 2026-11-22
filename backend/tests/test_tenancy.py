@@ -203,6 +203,7 @@ async def test_another_users_ids_answer_not_found_on_every_route(
         ("POST", f"/api/applications/{a}/approve", None),
         ("POST", f"/api/applications/{a}/answer", body),
         ("POST", f"/api/applications/{a}/retry", None),
+        ("POST", f"/api/applications/{a}/security-code", {"code": "Ab3dE5fG"}),
         ("GET", f"/api/files/screenshot/{a}", None),
         ("GET", f"/api/files/trace/{a}", None),
         ("GET", f"/api/files/cover_letter/{a}", None),

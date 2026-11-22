@@ -11,11 +11,22 @@ the job is unclear (A3). A Failed attempt sends application/failed for the alert
 The event names the user (PRD S13), and every step runs as them (observability/inngest_mw.py):
 their profile, resume, answer bank and daily cap, and an application only they can read.
 
-Concurrency 1: Inngest counts executing steps, not runs, so this means one browser at a
-time while attempts waiting for me (Ready for review, Needs input) hold no slot. A press
-lands on the application row first (the API writes it, then sends the event), and each
-wait is followed by a read of the row, so an Approve sent a moment before the wait began
-is picked up when the short first wait ends.
+Two concurrency limits (IDEA-15). One per user, so nobody has two browsers of their own
+open at once and their applications still go one after another, 30 seconds apart. One
+across the service, JAP_APPLY_BROWSERS, which is how many browsers may be open in all:
+each holds a worker and some memory, so this is the number that has to grow with the
+workers rather than with the users. Inngest counts executing steps, not runs, so attempts
+waiting for a person (Ready for review, Needs input) hold no slot; a browser held open
+waiting for a security code does hold one, which is why that wait is bounded
+(pipeline/apply/security_code.py).
+
+Before this was one slot for the whole service, which made the shared mailbox safe by
+accident: only one application could ever be waiting for a code. Per-user codes
+(IDEA-16) are what make it safe on purpose, and they ship together for that reason.
+
+A press lands on the application row first (the API writes it, then sends the event), and
+each wait is followed by a read of the row, so an Approve sent a moment before the wait
+began is picked up when the short first wait ends.
 """
 
 from datetime import datetime, timedelta
@@ -24,6 +35,7 @@ from typing import Any
 import inngest
 from sqlalchemy import select
 
+from config import get_settings
 from database import tenant
 from database.models import Application
 from database.session import get_sessionmaker
@@ -145,7 +157,10 @@ async def wait_for_me(ctx: inngest.Context, app_id: str, event: str, waiting: st
 @inngest_client.create_function(
     fn_id="apply-listing",
     trigger=inngest.TriggerEvent(event="listing/apply.requested"),
-    concurrency=[inngest.Concurrency(limit=1)],
+    concurrency=[
+        inngest.Concurrency(limit=1, key="event.data.user_id"),
+        inngest.Concurrency(limit=get_settings().jap_apply_browsers),
+    ],
     retries=2,
     cancel=[
         inngest.Cancel(

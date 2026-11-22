@@ -8,22 +8,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import ApiError
 from auth import consent
+from config import get_settings
 from database import tenant
-from database.models import Profile
+from database.models import AppUser, Profile, UserSecret
 from database.session import Session
 from functions.events import send
+from llm import secrets
 from llm.spend import month_spend
+from pipeline.apply import security_code
 from pipeline.limits import Limits, limits_for
 from pipeline.matching import Criteria, preview_counts, refilter
 from pipeline.resume import normalize_skills, skill_aliases
 from pipeline.workspace import load_profile
 from schemas.profile import (
+    ApiKey,
+    CodeAddress,
     MatchPreview,
     Plan,
     ProfileIn,
     ProfileOut,
     ProfileSaved,
     ProfileSwitches,
+    SaveApiKey,
 )
 
 router = APIRouter(prefix="/profile", tags=["profile"])
@@ -69,6 +75,7 @@ async def to_out(session: AsyncSession, profile: Profile) -> ProfileOut:
         plan=plan_out(limits),
         submit_opt_in=profile.submit_opt_in_at is not None,
         auto_opt_in=profile.auto_opt_in_at is not None,
+        submit_paused=profile.submit_paused,  # IDEA-17
         tz=profile.tz,  # U22; None means the service's JAP_TZ
     )
     return ProfileOut.model_validate(data)
@@ -77,6 +84,84 @@ async def to_out(session: AsyncSession, profile: Profile) -> ProfileOut:
 @router.get("", response_model=ProfileOut)
 async def get_profile(session: Session) -> ProfileOut:
     return await to_out(session, await load_profile(session))
+
+
+# IDEA-19: the account's own OpenRouter key. The key is write-only — it goes in, and only
+# its last four characters ever come back out.
+
+
+async def _key_out(session: AsyncSession) -> ApiKey:
+    available = secrets.configured()
+    row = await session.get(UserSecret, (tenant.user_id(session), secrets.OPENROUTER))
+    return ApiKey(
+        available=available,
+        set=row is not None,
+        hint=row.hint if row else "",
+        saved_at=row.updated_at if row else None,
+    )
+
+
+@router.get("/api-key", response_model=ApiKey)
+async def get_api_key(session: Session) -> ApiKey:
+    return await _key_out(session)
+
+
+@router.put("/api-key", response_model=ApiKey)
+async def save_api_key(body: SaveApiKey, session: Session) -> ApiKey:
+    """Save this account's own OpenRouter key: from now on their work is billed to it and
+    their JAP allowance is left alone. Stored sealed (llm/secrets.py), never logged."""
+    if not secrets.configured():
+        raise ApiError(503, "secrets_unavailable", "This JAP cannot store keys yet. Ask the admin.")
+    key = body.api_key.strip()
+    if len(key) < secrets.MIN_KEY_LENGTH:
+        raise ApiError(422, "bad_key", "That does not look like an API key")
+    uid = tenant.user_id(session)
+    ciphertext, nonce = secrets.seal(key, uid, secrets.OPENROUTER)
+    row = await session.get(UserSecret, (uid, secrets.OPENROUTER))
+    if row is None:
+        row = UserSecret(user_id=uid, kind=secrets.OPENROUTER)
+        session.add(row)
+    row.ciphertext, row.nonce, row.hint = ciphertext, nonce, secrets.hint_of(key)
+    await session.commit()
+    return await _key_out(session)
+
+
+# IDEA-16: the address this account's mail filter should forward security-code emails to.
+
+
+async def _code_address(session: AsyncSession, make: bool) -> CodeAddress:
+    user = await session.get(AppUser, tenant.user_id(session))
+    if user is None:
+        raise ApiError(404, "not_found", "No such account")
+    if make and not user.code_token:
+        user.code_token = security_code.new_token()
+        await session.commit()
+    return CodeAddress(
+        address=security_code.address_for(user.code_token) if user.code_token else None,
+        mailbox=bool(get_settings().email_from),
+    )
+
+
+@router.get("/code-address", response_model=CodeAddress)
+async def get_code_address(session: Session) -> CodeAddress:
+    return await _code_address(session, make=False)
+
+
+@router.post("/code-address", response_model=CodeAddress)
+async def make_code_address(session: Session) -> CodeAddress:
+    """Give this account its own forwarding address, so a code emailed to it is matched
+    to them and never to somebody else applying at the same moment."""
+    return await _code_address(session, make=True)
+
+
+@router.delete("/api-key", response_model=ApiKey)
+async def clear_api_key(session: Session) -> ApiKey:
+    """Take the key off. The account goes back to JAP's key and its monthly allowance."""
+    row = await session.get(UserSecret, (tenant.user_id(session), secrets.OPENROUTER))
+    if row is not None:
+        await session.delete(row)
+        await session.commit()
+    return await _key_out(session)
 
 
 async def normalized(session: AsyncSession, body: ProfileIn) -> dict[str, object]:
@@ -143,6 +228,8 @@ async def flip_switches(body: ProfileSwitches, session: Session) -> ProfileOut:
         profile.auto_apply_min_skills = body.auto_apply_min_skills
     if body.spend_cap_usd is not None:
         profile.spend_cap_usd = Decimal(str(round(body.spend_cap_usd, 2)))
+    if body.submit_paused is not None:
+        profile.submit_paused = body.submit_paused
     await session.commit()
     await session.refresh(profile)
     return await to_out(session, profile)

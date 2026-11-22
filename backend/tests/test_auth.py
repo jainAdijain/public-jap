@@ -47,7 +47,11 @@ def _code(secret: str, offset: int = 0) -> str:
 
 # --- everything is behind sign-in (S6) ----------------------------------------------------------
 
-OPEN = {"/api/health", "/api/inngest"}
+# The routes no browser session reaches, each shut another way: /api/health says only
+# whether the service is up, /api/inngest answers calls from inside Docker, and
+# /api/inbound/email takes a shared secret because a mail service cannot sign in
+# (IDEA-16). Adding to this set is a decision, not a convenience.
+OPEN = {"/api/health", "/api/inngest", "/api/inbound/email"}
 
 
 def _concrete(path: str) -> str:
