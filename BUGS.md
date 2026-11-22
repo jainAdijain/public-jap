@@ -21,6 +21,7 @@ commit that fixes them.
 | [JAP-4](#jap-4--issue--jap_env-still-says-dev-and-prod-after-the-locallive-rename) | Issue | Open | `JAP_ENV` still says `dev` and `prod` after the local/live rename |
 | [JAP-5](#jap-5--bug--a-job-title-wider-than-its-column-showed-as-nothing-but) | Bug | Fixed (v0.17.1) | A job title wider than its column showed as nothing but `...` |
 | [JAP-6](#jap-6--bug--settings-you-type-saved-only-when-the-field-lost-focus) | Bug | Fixed (v0.18.1) | Settings you type saved only when the field lost focus |
+| [JAP-7](#jap-7--issue--the-phase-4-screens-have-not-been-looked-at) | Issue | Open | The Phase 4 screens have not been looked at |
 
 ---
 
@@ -171,3 +172,49 @@ Escape forgets the edit, and blur still commits so nothing typed is lost. The bu
 mousedown, or the blur would fire first and take the button away before the click landed. What
 was typed stays on screen until the save returns, instead of flicking back to the old value in
 between on a slow connection — the JAP-1 fault in miniature.
+
+## JAP-7 — Issue — The Phase 4 screens have not been looked at
+
+**Status:** Open. Reported 22 Nov 2026, after v0.22.0 merged.
+
+Everything Phase 4 added to the UI shipped without anyone seeing it rendered. There is no UI
+test runner in this repository on purpose, so `npm run lint` and `tsc -b && vite build` are
+the whole automated check, and both say only that it compiles. CI was green on all of it.
+
+That gap is not theoretical. Reading `styles.css` afterwards found two real faults that every
+automated check had passed, both fixed in `6afc691`:
+
+- the security code box asked for `note-box attn`, and `.attn` exists only as
+  `.strip button.attn .n`, so the one element a person has minutes to act on rendered with no
+  emphasis at all;
+- both admin tables are `table.hist`, which carries `min-width: 760px`, and neither was
+  wrapped in `.table-scroll` the way every other use of it is, inside a grid column narrower
+  than that.
+
+Two found by reading one stylesheet is reason to think a pass with eyes would find more,
+especially layout at narrow widths.
+
+What still wants looking at, and what each needs before it will appear:
+
+| Screen | Who sees it | How to reach it |
+| --- | --- | --- |
+| Security code box, in the job panel | everyone | hardest, and the one most worth checking |
+| Pause sending, Settings > Applying | everyone | always there |
+| Forwarding address, Settings > Applying | everyone | hidden unless `SMTP_USERNAME` is set |
+| Your own OpenRouter key, Settings > Your plan | everyone | hidden unless `JAP_SECRET_KEY` is set |
+| How long applying takes, Settings | admin | always there; shows its empty state with no data |
+| What each site did with them, Settings | admin | needs real `apply.outcome` rows, so real submissions |
+
+A card that hides itself when its setting is unset is behaving correctly, not failing.
+
+The code box only shows while an application is `applying` **and** the site has asked, which
+no fake form produces. Force it rather than waiting for a real Greenhouse code:
+
+```sql
+UPDATE application SET status = 'applying', code_wanted_at = now() WHERE id = '<app-id>';
+```
+
+then open that job. Nothing was sent; the row is only pretending to wait.
+
+Do this on the VM, not the Mac, which has not the memory to run a stack any more
+(`make vm-sync`, then `make start` there, then `make vm-tunnel`).
