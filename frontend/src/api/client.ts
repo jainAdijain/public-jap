@@ -44,6 +44,12 @@ export type WorkMode = 'remote' | 'hybrid' | 'onsite'
 export type Condition = 'role' | 'location'
 export type Link = { label: string; url: string }
 export type Spend = { month_usd: number; cap_usd: number; reached: boolean }
+/** This account's own OpenRouter key (IDEA-19). Never the key: `hint` is its last 4 characters.
+ *  `available` is false when the service has no master key, so none can be saved at all. */
+export type ApiKey = { available: boolean; set: boolean; hint: string; saved_at: string | null }
+/** Where this account's mail filter should forward security-code emails (IDEA-16).
+ *  `address` is null until asked for, or when the service has no mailbox at all. */
+export type CodeAddress = { address: string | null; mailbox: boolean }
 /** What this account may use (S12). boards null: no limit. custom: the admin set one of them. */
 export type Plan = { name: string; boards: number | null; applications_per_day: number; ai_usd: number; custom: boolean }
 
@@ -78,6 +84,8 @@ export type Profile = ProfileFields & {
   /** Consent (S14). Without submit_opt_in nothing is ever sent; auto_opt_in gates Automatic. */
   submit_opt_in: boolean
   auto_opt_in: boolean
+  /** IDEA-17: sending paused for this account; applications wait instead of going out. */
+  submit_paused: boolean
   /** The zone daily_run_at is read in (U22). null: the service's own, shown as a fallback. */
   tz: string | null
 }
@@ -172,6 +180,8 @@ export type Switches = {
   /** Consent (S14): JAP may apply in my name, and may do it without asking. */
   submit_opt_in?: boolean
   auto_opt_in?: boolean
+  /** IDEA-17: stop this account's sending without turning the account off. */
+  submit_paused?: boolean
 }
 
 export type Salary = { min: number | null; max: number | null; currency: string | null; period: string | null }
@@ -330,6 +340,8 @@ export type Application = {
   has_screenshot: boolean
   has_trace: boolean
   submit_pressed: boolean
+  /** The site is asking for the code it emailed and the form is open, waiting (IDEA-16). */
+  code_wanted: boolean
 }
 export type ListingDetail = ListingRow & {
   skills: string[]
@@ -486,6 +498,23 @@ export type Status = {
   alerts: { key: string; sent_at: string; detail: string | null }[]
 }
 
+/** How long applying takes, for the admin (IDEA-15). Per application is the total of its
+ *  steps, which is how long one browser is held. */
+export type StepTime = { step: string; n: number; median_ms: number; p90_ms: number; worst_ms: number }
+/** What one job site did with what was sent to it (IDEA-17). Refusals and codes climbing
+ *  is the sign the service is being read as a bot. */
+export type SiteRow = { ats: string; submissions: number; confirmed: number; rejected: number; needs_code: number }
+export type Capacity = {
+  days: number
+  applications: number
+  steps: StepTime[]
+  sites: SiteRow[]
+  median_ms: number | null
+  p90_ms: number | null
+  worst_ms: number | null
+  per_browser_hour: number | null
+}
+
 export type FunnelWeek = { week: string; found: number; matched: number; prepared: number; applied: number; failed: number }
 export type Insights = {
   weeks: number
@@ -583,6 +612,13 @@ export const api = {
   formCheckShotUrl: (id: string) => `${API_URL}/api/ops/form-check/${id}/screenshot`,
   status: (signal?: AbortSignal) => request<Status>('/api/ops/status', { signal }),
   healthCheckNow: () => request<{ queued: boolean }>('/api/ops/health-check', json('POST', {})),
+  capacity: (days = 30, signal?: AbortSignal) => request<Capacity>(`/api/ops/capacity?days=${days}`, { signal }),
+  securityCode: (appId: string, code: string) => request<Application>(`/api/applications/${appId}/security-code`, json('POST', { code })),
+  codeAddress: () => request<CodeAddress>('/api/profile/code-address'),
+  makeCodeAddress: () => request<CodeAddress>('/api/profile/code-address', json('POST', {})),
+  apiKey: () => request<ApiKey>('/api/profile/api-key'),
+  saveApiKey: (api_key: string) => request<ApiKey>('/api/profile/api-key', json('PUT', { api_key })),
+  clearApiKey: () => request<ApiKey>('/api/profile/api-key', { method: 'DELETE' }),
   insights: (weeks = 8) => request<Insights>(`/api/insights?weeks=${weeks}`),
   timeline: (appId: string) => request<Timeline>(`/api/applications/${appId}/timeline`),
 }

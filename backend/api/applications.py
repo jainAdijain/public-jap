@@ -38,6 +38,7 @@ from schemas.application import (
     PendingOut,
     ResumeRef,
     RetryIn,
+    SecurityCodeIn,
 )
 from schemas.status import Timeline
 
@@ -108,6 +109,7 @@ async def to_out(session: AsyncSession, app: Application) -> ApplicationOut:
         submitted_at=app.submitted_at,
         email_sent_at=app.email_sent_at,
         submit_pressed=app.status == "failed" and app.submit_started_at is not None,
+        code_wanted=app.code_wanted_at is not None and app.status == "applying",
         has_screenshot=_exists(app.screenshot_path),
         has_trace=_exists(app.trace_path),
     )
@@ -219,6 +221,22 @@ async def answer(app_id: uuid.UUID, body: AnswerQuestionsIn, session: Session) -
     await set_status(session, app.listing_id, "applying")
     await session.commit()
     await send("application/answered", {"application_id": str(app.id), "user_id": str(app.user_id)})
+    await session.refresh(app)
+    return await to_out(session, app)
+
+
+@router.post("/applications/{app_id}/security-code", response_model=ApplicationOut)
+async def security_code_typed(
+    app_id: uuid.UUID, body: SecurityCodeIn, session: Session
+) -> ApplicationOut:
+    """Type in the code the job site emailed (A5, IDEA-16). The form is open and waiting
+    for it, so this only parks it on the row; the waiting browser picks it up within
+    seconds and clears it. The code is never logged."""
+    app = await get_app(session, app_id, lock=True)
+    if app.code_wanted_at is None or app.status != "applying":
+        raise ApiError(409, "conflict", "This application is not waiting for a code")
+    app.security_code = body.code.strip()
+    await session.commit()
     await session.refresh(app)
     return await to_out(session, app)
 

@@ -90,27 +90,102 @@ def test_an_old_code_is_never_used(mailbox: type[FakeImap]) -> None:
     assert sc.fetch_code("greenhouse", PRESSED, 8) is None
 
 
+APP = "00000000-0000-0000-0000-0000000000a1"
+
+
+@pytest.fixture
+def no_db(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These exercise the mailbox half of the waiter. The other two routes it watches read
+    and write the application row, which is tested against a real one in test_apply.py."""
+
+    async def nothing(app_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(sc, "mark_wanted", nothing)
+    monkeypatch.setattr(sc, "typed_code", nothing)
+
+
 async def test_the_waiter_polls_until_the_code_arrives(
-    mailbox: type[FakeImap], monkeypatch: pytest.MonkeyPatch
+    mailbox: type[FakeImap], no_db: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     looks: list[int] = []
     real = sc.fetch_code
 
-    def fetch(site: str, since: datetime, length: int) -> str | None:
+    def fetch(site: str, since: datetime, length: int, token: str | None = None) -> str | None:
         looks.append(1)
         if len(looks) == 2:
             mailbox.mails.append(
                 _mail("no-reply@greenhouse.io", PRESSED + timedelta(seconds=5), BODY)
             )
-        return real(site, since, length)
+        return real(site, since, length, token)
 
     monkeypatch.setattr(sc, "fetch_code", fetch)
-    code = await sc.waiter("greenhouse", wait_s=1, poll_s=0)(PRESSED, 8)
+    code = await sc.waiter("greenhouse", APP, wait_s=1, poll_s=0)(PRESSED, 8)
     assert code == "Ab3dE5fG" and len(looks) == 2
 
 
-async def test_the_waiter_gives_up(mailbox: type[FakeImap]) -> None:
-    assert await sc.waiter("greenhouse", wait_s=0, poll_s=1)(PRESSED, 8) is None
+async def test_the_waiter_gives_up(mailbox: type[FakeImap], no_db: None) -> None:
+    assert await sc.waiter("greenhouse", APP, wait_s=0, poll_s=1)(PRESSED, 8) is None
+
+
+# IDEA-16: whose code is it? ---------------------------------------------------------------
+
+
+def _to(sender: str, at: datetime, body: str, to: str, header: str = "To") -> bytes:
+    msg = EmailMessage()
+    msg["From"] = sender
+    msg["To"] = "jap@example.com"
+    if header != "To":
+        msg[header] = to
+    else:
+        msg.replace_header("To", to)
+    msg["Subject"] = "Security code"
+    msg["Date"] = format_datetime(at)
+    msg.set_content(body)
+    return msg.as_bytes()
+
+
+def test_a_code_is_matched_to_the_account_it_was_sent_to(mailbox: type[FakeImap]) -> None:
+    """Two people waiting at the same moment: each gets their own code, and neither gets
+    the other's. Without this, the newest Greenhouse email wins and that is a lottery."""
+    mine, yours = "aaaa1111", "bbbb2222"
+    mailbox.mails = [
+        _to("no-reply@greenhouse.io", PRESSED + timedelta(seconds=10),
+            BODY.replace("Ab3dE5fG", "MINE1234"), f"jap+{mine}@example.com"),
+        _to("no-reply@greenhouse.io", PRESSED + timedelta(seconds=20),
+            BODY.replace("Ab3dE5fG", "YOURS567"), f"jap+{yours}@example.com"),
+    ]  # fmt: skip
+    assert sc.fetch_code("greenhouse", PRESSED, 8, mine) == "MINE1234"
+    assert sc.fetch_code("greenhouse", PRESSED, 8, yours) == "YOURS567"
+    # An account whose token is on no email gets nothing, rather than someone else's.
+    assert sc.fetch_code("greenhouse", PRESSED, 8, "cccc3333") is None
+    # No token at all is the single-user case: the newest code, whoever it was for.
+    assert sc.fetch_code("greenhouse", PRESSED, 8) == "YOURS567"
+
+
+@pytest.mark.parametrize("header", ["Delivered-To", "X-Forwarded-To", "X-Original-To", "Cc"])
+def test_the_recipient_is_found_wherever_the_forward_put_it(
+    mailbox: type[FakeImap], header: str
+) -> None:
+    """Which header survives a forward differs by provider, so all of them are read."""
+    mailbox.mails = [
+        _to("no-reply@greenhouse.io", PRESSED + timedelta(seconds=10), BODY,
+            "jap+dddd4444@example.com", header)
+    ]  # fmt: skip
+    assert sc.fetch_code("greenhouse", PRESSED, 8, "dddd4444") == "Ab3dE5fG"
+
+
+def test_an_address_is_built_from_the_mailbox_login(mailbox: type[FakeImap]) -> None:
+    assert sc.address_for("abc123") == "jap-admin+abc123@example.com"
+    assert len(sc.new_token()) == 16 and sc.new_token() != sc.new_token()
+
+
+def test_no_mailbox_means_no_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("SMTP_USERNAME", "SMTP_PASSWORD", "GMAIL_ADDRESS", "GMAIL_APP_PASSWORD"):
+        monkeypatch.setenv(name, "")
+    get_settings.cache_clear()
+    assert sc.address_for("abc123") is None
+    get_settings.cache_clear()
 
 
 def test_no_mailbox_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None:

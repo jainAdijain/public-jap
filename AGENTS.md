@@ -216,9 +216,12 @@ still passes locally.
 - **Submit is pressed at most once.** If a retry finds it was pressed with no confirmation, the
   job becomes Failed with "Submit outcome unknown". `JAP_SUBMIT_ENABLED=false` (test) must never
   submit to a real job site.
-- **Auth:** every `/api` route is behind a session except `/api/health` and `/api/auth/*`. New
-  routers are registered in `main.py` inside the `dependencies=[Depends(current_user)]` loop.
-  `/api/inngest` answers only direct calls from inside Docker.
+- **Auth:** every `/api` route is behind a session except `/api/health`, `/api/auth/*` and
+  `/api/inbound/email`. New routers are registered in `main.py` inside the
+  `dependencies=[Depends(current_user)]` loop. `/api/inngest` answers only direct calls from
+  inside Docker. `/api/inbound/email` takes a security code from a mail service that cannot
+  sign in, so it carries `JAP_INBOUND_SECRET` instead and is off (404) without one; the open
+  set is listed in `tests/test_auth.py` and adding to it is a decision, not a convenience.
 - **Logs are scrubbed** (`backend/observability/scrub.py`): emails, phone numbers, keys, tokens
   and security codes are replaced, and answers, resume text and cover letters are never written
   at all. Keep it that way when adding log lines.

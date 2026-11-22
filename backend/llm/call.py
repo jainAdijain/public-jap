@@ -27,6 +27,7 @@ from database import tenant
 from database.models import LlmCall
 from llm import client
 from llm.redact import PersonalDataBlocked, Sensitive, guard, redact
+from llm.secrets import byok_key
 from llm.spend import month_spend, system_spend, total_spend
 from observability import context
 
@@ -122,6 +123,11 @@ async def call(
     input_sha = hashlib.sha256(body_text.encode()).hexdigest()
     # Who this call is for: a user (their allowance pays) or the service (shared postings).
     user_id = tenant.of(session).user_id
+    # A user who saved their own key pays for their own work with it (IDEA-19). Shared
+    # work is never billed to one person's key, whoever happened to set the run going.
+    own_key = await byok_key(session, user_id) if user_id else None
+    api_key = own_key or settings.openrouter_api_key
+    billed_to = "byok" if own_key else "user" if user_id else "system"
 
     def log(**fields: Any) -> LlmCall:
         row = LlmCall(
@@ -132,7 +138,7 @@ async def call(
             run_id=context.uuid_of("run_id"),
             application_id=context.uuid_of("application_id"),
             user_id=user_id,
-            billed_to="user" if user_id else "system",
+            billed_to=billed_to,
             **fields,
         )
         session.add(row)
@@ -145,10 +151,13 @@ async def call(
         await session.commit()
         raise
 
-    spend = await (month_spend(session, user_id) if user_id else system_spend(session))
-    if not spend.reached:
-        spend = await total_spend(session)
-    if spend.reached:
+    # Their own key, their own bill: no allowance and no service budget to stop at.
+    spend = None
+    if own_key is None:
+        spend = await (month_spend(session, user_id) if user_id else system_spend(session))
+        if not spend.reached:
+            spend = await total_spend(session)
+    if spend is not None and spend.reached:
         log(error="Spend cap reached")
         await session.commit()
         raise SpendCapReached(
@@ -159,7 +168,7 @@ async def call(
     for _attempt in range(2):  # one retry on invalid output
         started = time.monotonic()
         try:
-            result = await client.chat(settings.openrouter_api_key, body)
+            result = await client.chat(api_key, body)
         except client.ModelCallError as exc:
             log(error=str(exc), latency_ms=int((time.monotonic() - started) * 1000))
             await session.commit()

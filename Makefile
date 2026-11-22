@@ -206,6 +206,9 @@ health-check: ## Run the hourly health watch now: delete old log rows, email ale
 	@curl -fsS -X POST http://127.0.0.1:$(JAP_API_PORT)/api/ops/health-check > /dev/null && \
 		echo "Health check started. Results: Settings > Status, or the health-watch run in Inngest."
 
+capacity: ## How long an application takes and how many fit in a browser-hour: make capacity [DAYS=30]
+	@$(COMPOSE) exec -T app python -m observability.capacity $(DAYS)
+
 errors: ## The last 20 warnings and errors JAP logged (log_event, kept 30 days)
 	@$(COMPOSE) exec -T db psql -U $(or $(POSTGRES_USER),jap) -d $(or $(POSTGRES_DB),jap) -c \
 		"SELECT to_char(created_at, 'MM-DD HH24:MI') AS at, level, event, left(message, 90) AS message FROM log_event WHERE level IN ('warning', 'error', 'critical') ORDER BY created_at DESC LIMIT 20"

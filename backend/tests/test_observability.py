@@ -19,6 +19,7 @@ from functions.health_watch import find_step, send_step
 from llm import call
 from llm.redact import Sensitive
 from observability import alerts, context, writer
+from observability.capacity import capacity, lines
 from observability.inngest_mw import LogMiddleware
 from observability.logs import ContextFilter, DbHandler, JsonFormatter, event
 from observability.scrub import scrub, scrub_value
@@ -415,3 +416,73 @@ def test_ids_outside_a_context_are_empty() -> None:
         assert context.uuid_of("run_id") is None
     finally:
         context.reset(token)
+
+
+# IDEA-15: how long an application takes, and how many fit in a browser-hour ---------------
+
+
+def _step(
+    sql: psycopg.Connection[Any],
+    app_id: str | None,
+    step: str,
+    ms: int | None,
+    *,
+    function: str = "apply-listing",
+    event_name: str = "inngest.step",
+    age_days: int = 0,
+) -> None:
+    fields: dict[str, Any] = {"function": function}
+    if step:
+        fields["step"] = step
+    if ms is not None:
+        fields["duration_ms"] = ms
+    sql.execute(
+        "INSERT INTO log_event (level, event, message, logger, application_id, fields,"
+        " created_at) VALUES ('info', %s, 'm', 'jap.inngest', %s, %s,"
+        " now() - make_interval(days => %s))",
+        (event_name, app_id, json.dumps(fields), age_days),
+    )
+
+
+async def test_capacity_adds_up_the_step_durations(db: str, sql: psycopg.Connection[Any]) -> None:
+    a, b = str(uuid.uuid4()), str(uuid.uuid4())
+    for app_id, steps in (
+        (a, {"read-form": 10_000, "map-fields-0": 2_000, "submit-0": 100, "submit-1": 20_000}),
+        (b, {"read-form": 20_000, "map-fields-0": 4_000, "submit-0": 30_000}),
+    ):
+        for step, ms in steps.items():
+            _step(sql, app_id, step, ms)
+    # None of these are an apply step that ran: another function, the function line rather
+    # than a step, a step with no duration, one with no application, and one too old.
+    _step(sql, a, "fetch", 99_000, function="run-pipeline")
+    _step(sql, a, "", 99_000, event_name="inngest.function")
+    _step(sql, a, "read-form", None)
+    _step(sql, None, "read-form", 99_000)
+    _step(sql, a, "read-form", 99_000, age_days=31)
+
+    async with get_sessionmaker()() as session:
+        c = await capacity(session)
+    # Grouped by name with the pass number off, worst median first.
+    assert [(s.step, s.n, s.median_ms) for s in c.steps] == [
+        ("submit", 3, 20_000),
+        ("read-form", 2, 15_000),
+        ("map-fields", 2, 3_000),
+    ]
+    assert [(s.p90_ms, s.worst_ms) for s in c.steps if s.step == "read-form"] == [(19_000, 20_000)]
+    # Per application: 32.1 s and 54 s of steps, so one browser does 3600/43.05 an hour.
+    assert c.applications == 2 and c.days == 30
+    assert (c.median_ms, c.p90_ms, c.worst_ms) == (43_050, 51_810, 54_000)
+    assert c.per_browser_hour == 83.6
+    assert "One browser gets through about 83.6" in "\n".join(lines(c))
+
+
+async def test_capacity_says_so_when_there_is_nothing_to_measure(
+    db: str, api: httpx.AsyncClient
+) -> None:
+    body = (await api.get("/api/ops/capacity")).json()
+    assert body["applications"] == 0 and body["steps"] == [] and body["per_browser_hour"] is None
+    async with get_sessionmaker()() as session:
+        assert "nothing to measure yet" in "\n".join(lines(await capacity(session)))
+    assert (await api.get("/api/ops/capacity", params={"days": 0})).status_code == 422
+    assert (await api.get("/api/ops/capacity", params={"days": 31})).status_code == 422
+    assert (await api.get("/api/ops/capacity", params={"days": 7})).json()["days"] == 7
