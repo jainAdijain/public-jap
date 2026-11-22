@@ -552,65 +552,69 @@ function CapacityCard() {
         {data && data.applications === 0 && <p className="muted">No applications yet, so there is nothing to measure.</p>}
         {data && data.applications > 0 && (
           <>
-            <table className="hist">
-              <thead>
-                <tr>
-                  <th>Step</th>
-                  <th>Ran</th>
-                  <th>Median</th>
-                  <th>90th</th>
-                  <th>Worst</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.steps.map((s) => (
-                  <tr key={s.step}>
-                    <td>{s.step}</td>
-                    <td>{s.n}</td>
-                    <td>{secs(s.median_ms)}</td>
-                    <td>{secs(s.p90_ms)}</td>
-                    <td>{secs(s.worst_ms)}</td>
+            <div className="table-scroll">
+              <table className="hist">
+                <thead>
+                  <tr>
+                    <th>Step</th>
+                    <th>Ran</th>
+                    <th>Median</th>
+                    <th>90th</th>
+                    <th>Worst</th>
                   </tr>
-                ))}
-                <tr>
-                  <td>
-                    <b>Per application</b>
-                  </td>
-                  <td>{data.applications}</td>
-                  <td>{secs(data.median_ms)}</td>
-                  <td>{secs(data.p90_ms)}</td>
-                  <td>{secs(data.worst_ms)}</td>
-                </tr>
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {data.steps.map((s) => (
+                    <tr key={s.step}>
+                      <td>{s.step}</td>
+                      <td>{s.n}</td>
+                      <td>{secs(s.median_ms)}</td>
+                      <td>{secs(s.p90_ms)}</td>
+                      <td>{secs(s.worst_ms)}</td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td>
+                      <b>Per application</b>
+                    </td>
+                    <td>{data.applications}</td>
+                    <td>{secs(data.median_ms)}</td>
+                    <td>{secs(data.p90_ms)}</td>
+                    <td>{secs(data.worst_ms)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <span className="muted small">One browser gets through about {data.per_browser_hour} applications an hour; capacity is that times the browsers running at once.</span>
           </>
         )}
         {data && data.sites.length > 0 && (
           <>
             <h3>What each site did with them</h3>
-            <table className="hist">
-              <thead>
-                <tr>
-                  <th>Site</th>
-                  <th>Sent</th>
-                  <th>Confirmed</th>
-                  <th>Refused</th>
-                  <th>Asked for a code</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.sites.map((s) => (
-                  <tr key={s.ats}>
-                    <td>{atsLabel(s.ats)}</td>
-                    <td>{s.submissions}</td>
-                    <td>{s.confirmed}</td>
-                    <td>{s.rejected}</td>
-                    <td>{s.needs_code}</td>
+            <div className="table-scroll">
+              <table className="hist">
+                <thead>
+                  <tr>
+                    <th>Site</th>
+                    <th>Sent</th>
+                    <th>Confirmed</th>
+                    <th>Refused</th>
+                    <th>Asked for a code</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {data.sites.map((s) => (
+                    <tr key={s.ats}>
+                      <td>{atsLabel(s.ats)}</td>
+                      <td>{s.submissions}</td>
+                      <td>{s.confirmed}</td>
+                      <td>{s.rejected}</td>
+                      <td>{s.needs_code}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <span className="muted small">Refusals or code requests climbing on a site means it is reading JAP as a bot rather than as the people using it.</span>
           </>
         )}

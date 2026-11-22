@@ -302,7 +302,7 @@ function SecurityCodeBox({ app, busy, act }: { app: Application; busy: boolean; 
   const [code, setCode] = useState('')
   const ok = /^[A-Za-z0-9]{4,16}$/.test(code.trim())
   return (
-    <div className="note-box attn" role="status">
+    <div className="note-box warn" role="status">
       <b>The employer emailed you a code.</b> Check your email for a message from the job site and type the code here. The form is open and waiting, so do it now if you can.
       <div className="inline" style={{ marginTop: 8 }}>
         <label htmlFor="sec-code">Code</label>
