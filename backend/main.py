@@ -46,7 +46,7 @@ RUNS_FUNCTIONS = ("all", "worker")
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="JAP", version="0.22.0")
+    app = FastAPI(title="JAP", version="0.23.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

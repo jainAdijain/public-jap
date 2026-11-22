@@ -36,7 +36,7 @@ limits, is built on the `tenancy` branch and is not listed.
 | [IDEA-18](#idea-18--an-outbound-address-for-each-user) | 4 | Part built (v0.22.0) | An outbound address for each user |
 | [IDEA-19](#idea-19--bring-your-own-openrouter-key) | 4 | Built (v0.22.0) | Bring your own OpenRouter key |
 | [IDEA-20](#idea-20--a-decision-on-job-site-blocking-and-terms-of-use) | 4 | Open | A decision on job-site blocking and terms of use |
-| [IDEA-21](#idea-21--paid-plans) | 5 | Open | Paid plans |
+| [IDEA-21](#idea-21--paid-plans) | 5 | Built (v0.23.0) | Paid plans |
 | [IDEA-22](#idea-22--a-browser-extension-that-submits-from-the-users-own-machine) | 5 | Open | A browser extension that submits from the user's own machine |
 | [IDEA-23](#idea-23--the-public-launch-review) | 6 | Open | The public launch review |
 | [IDEA-24](#idea-24--a-devin-cloud-blueprint-and-the-untested-setup-path) | - | Open | A Devin cloud blueprint, and the untested setup path |
@@ -294,11 +294,17 @@ the terms page says JAP does on someone's behalf. Nothing in the code is waiting
 
 ## IDEA-21 — Paid plans
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 5).
+**Status:** Built (v0.23.0). Recorded 17 Nov 2026, from the public-jap plan (Phase 5).
 
 Free is the only plan and `limits_for(user)` already returns its limits (AI quota, companies
 followed, applications a day), so a paid plan is more rows behind that function plus a plan page
 and payment. Today's amounts are caps on the operator's OpenRouter bill, not prices.
+
+Built as Plus, behind `limits_for` exactly as described, sold through Razorpay with the
+provider boundary written for a second seller (`backend/billing/`). Two things are **not**
+done and are nobody's code: a merchant of record for outside India has not been chosen, and
+nothing may be sold at all until the terms, privacy and refund pages exist and the seller's
+tax position is settled. `JAP_BILLING_ENABLED=false` is what holds the line meanwhile.
 
 ## IDEA-22 — A browser extension that submits from the user's own machine
 
