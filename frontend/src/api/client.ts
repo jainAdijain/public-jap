@@ -51,7 +51,7 @@ export type ApiKey = { available: boolean; set: boolean; hint: string; saved_at:
  *  `address` is null until asked for, or when the service has no mailbox at all. */
 export type CodeAddress = { address: string | null; mailbox: boolean }
 /** What this account may use (S12). boards null: no limit. custom: the admin set one of them. */
-export type Plan = { name: string; boards: number | null; applications_per_day: number; ai_usd: number; custom: boolean }
+export type Plan = { name: string; code: string; boards: number | null; applications_per_day: number; ai_usd: number; custom: boolean }
 
 export type ProfileFields = {
   full_name: string | null
@@ -480,6 +480,37 @@ export const admin = {
   turnOn: (id: string) => request<Accounts>(`/api/admin/accounts/${id}/on`, json('POST', {})),
   setLimits: (id: string, limits: AccountLimits) => request<Accounts>(`/api/admin/accounts/${id}/limits`, json('PUT', limits)),
   pauseSignUp: (paused: boolean) => request<Accounts>('/api/admin/sign-up', json('PUT', { paused })),
+}
+
+/** Paid plans (IDEA-21). price_* are for display: what is charged is held by the provider. */
+export type PlanOffer = {
+  code: string
+  name: string
+  boards: number | null
+  applications_per_day: number
+  ai_usd: number
+  price_inr: number
+  price_usd: number
+  current: boolean
+}
+/** granting: whether it is handing its plan over right now. A past_due one still does,
+ *  until the period it paid for has run out and the few days after it. */
+export type Subscription = {
+  plan_code: string
+  plan_name: string
+  provider: string
+  status: 'pending' | 'active' | 'past_due' | 'cancelled' | 'expired'
+  current_period_end: string | null
+  cancel_at_period_end: boolean
+  granting: boolean
+}
+export type Billing = { selling: boolean; providers: string[]; plans: PlanOffer[]; subscription: Subscription | null }
+
+export const billing = {
+  get: (signal?: AbortSignal) => request<Billing>('/api/billing', { signal }),
+  /** Gives back a page the provider hosts; the browser goes there to pay. */
+  checkout: (plan_code: string, provider: string) => request<{ url: string }>('/api/billing/checkout', json('POST', { plan_code, provider })),
+  cancel: () => request<Billing>('/api/billing/cancel', json('POST', {})),
 }
 
 export type RunBrief = { id: string; trigger: string; status: string; started_at: string; ended_at: string | null; error: string | null }

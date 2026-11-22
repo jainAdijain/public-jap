@@ -55,6 +55,7 @@ def _consent(profile: Profile, body: ProfileSwitches) -> None:
 def plan_out(limits: Limits) -> Plan:
     return Plan(
         name=limits.plan,
+        code=limits.plan_code,
         boards=limits.boards,
         applications_per_day=limits.plan_applications,
         ai_usd=limits.plan_ai_usd,

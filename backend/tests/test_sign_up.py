@@ -221,7 +221,14 @@ async def test_admin_pauses_sign_up_and_turns_an_account_off(
     ]
     assert listed["sign_up_paused"] is False and listed["accounts"][1]["last_sign_in_at"]
     assert listed["accounts"][1]["spend"] == {"month_usd": 0.0, "cap_usd": 1.0, "reached": False}
-    free = {"name": "Free", "boards": 1, "applications_per_day": 1, "ai_usd": 1.0, "custom": False}
+    free = {
+        "name": "Free",
+        "code": "free",
+        "boards": 1,
+        "applications_per_day": 1,
+        "ai_usd": 1.0,
+        "custom": False,
+    }
     assert listed["accounts"][1]["plan"] == free
     assert listed["accounts"][0]["plan"]["name"] == "Admin"
     assert listed["accounts"][0]["plan"]["boards"] is None  # the admin is not held to the plan

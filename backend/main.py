@@ -17,6 +17,7 @@ from api import (
     answers,
     applications,
     auth,
+    billing,
     boards,
     duplicates,
     errors,
@@ -29,6 +30,7 @@ from api import (
     profile,
     resumes,
     runs,
+    webhooks,
 )
 from auth import guards
 from auth.deps import admin_user, agreed_user, current_user
@@ -62,10 +64,14 @@ def create_app() -> FastAPI:
     # A mail service cannot sign in, so the inbound route carries a shared secret of its
     # own instead of a session, and is off entirely without one (IDEA-16, api/inbound.py).
     app.include_router(inbound.router, prefix="/api")
+    # A payment provider cannot sign in either: a signature over the raw body stands in
+    # for the session, and anything unsigned is Not Found (IDEA-21, api/webhooks.py).
+    app.include_router(webhooks.router, prefix="/api")
     # Everything else needs a signed-in session that has agreed to the notice as it stands,
     # and works on that user's own data (PRD S6, S7, S14).
     for module in (
         profile, resumes, boards, answers, runs, postings, listings, applications, insights,
+        billing,
     ):  # fmt: skip
         app.include_router(module.router, prefix="/api", dependencies=[Depends(agreed_user)])
     # Getting your data back and deleting your account are the exception: a signed-in session

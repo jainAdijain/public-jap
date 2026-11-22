@@ -30,7 +30,7 @@ APP_ROLE = "jap_app"
 # the database agrees).
 PRIVATE_TABLES = (
     "profile", "resume_version", "answer_bank", "application", "run", "board_follow",
-    "user_listing", "llm_call", "user_secret",
+    "user_listing", "llm_call", "user_secret", "subscription",
 )  # fmt: skip
 INFO_KEY = "jap_tenant"
 # The default of every user_id column and the test in every row-level security policy.

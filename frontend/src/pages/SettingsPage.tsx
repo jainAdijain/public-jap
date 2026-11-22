@@ -1,6 +1,6 @@
 import { useEffect, useState, type InputHTMLAttributes, type ReactNode } from 'react'
 
-import { admin, api, type Account, type Accounts, type ApiKey, type Capacity, type CodeAddress, type Run, type Status, type Switches } from '../api/client'
+import { admin, api, billing, type Account, type Accounts, type ApiKey, type Billing, type Capacity, type CodeAddress, type Run, type Status, type Switches } from '../api/client'
 import { atsLabel, errorText, money, planWords, STARTED_BY, when } from '../format'
 import { useApp } from '../appContext'
 import { useAuth } from '../authContext'
@@ -625,6 +625,90 @@ function CapacityCard() {
 
 /** Accounts (PRD S12), for the admin: who has one, turning one off, pausing sign-up, and
  * what the AI has cost this month. Nothing a user wrote is shown here. */
+/** What is on offer and what this account is paying for (IDEA-21).
+ *
+ * Nothing at all shows while the service is not selling, which is what a stack with no
+ * payment provider configured looks like, and what every stack looked like before this.
+ * Upgrading leaves JAP: checkout is a page the provider hosts, so no card detail is typed
+ * into these pages and no payment script runs in them. */
+function PlanChoice() {
+  const { toast } = useApp()
+  const [data, setData] = useState<Billing | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    const stop = new AbortController()
+    billing.get(stop.signal).then(setData, (err) => {
+      if (!stop.signal.aborted) setFailed(errorText(err))
+    })
+    return () => stop.abort()
+  }, [])
+  if (failed) return <span className="error-text small">Your plan could not be read: {failed}</span>
+  if (!data) return null
+  const sub = data.subscription
+  const offers = data.plans.filter((p) => p.code !== 'free' && !p.current)
+  const upgrade = async (code: string, provider: string) => {
+    setBusy(true)
+    try {
+      // The provider's own page takes it from here, and its webhook tells JAP what came of it.
+      window.location.href = (await billing.checkout(code, provider)).url
+    } catch (err) {
+      setBusy(false)
+      toast({ text: errorText(err), bad: true })
+    }
+  }
+  const stop = async () => {
+    setBusy(true)
+    try {
+      setData(await billing.cancel())
+      toast('Your plan will not renew. You keep it until the period you have paid for ends.')
+    } catch (err) {
+      toast({ text: errorText(err), bad: true })
+    }
+    setBusy(false)
+  }
+  return (
+    <>
+      {sub?.status === 'past_due' && (
+        <span className="error-text small">
+          Your last payment did not go through. {sub.current_period_end ? `Your plan runs until ${when(sub.current_period_end)} while ${sub.provider} tries again.` : `${sub.provider} is trying again.`} Check the card or mandate with your bank.
+        </span>
+      )}
+      {sub?.granting && sub.cancel_at_period_end && (
+        <span className="muted small">
+          {sub.plan_name} ends{sub.current_period_end ? ` on ${when(sub.current_period_end)}` : ''}. You keep it until then, and go back to Free after.
+        </span>
+      )}
+      {sub?.granting && !sub.cancel_at_period_end && sub.status === 'active' && (
+        <div className="inline spread">
+          <span className="muted small">
+            {sub.plan_name}, paid through {sub.provider}
+            {sub.current_period_end ? `, renews on ${when(sub.current_period_end)}` : ''}.
+          </span>
+          <button type="button" className="btn-link" disabled={busy} onClick={() => void stop()}>
+            Cancel my plan
+          </button>
+        </div>
+      )}
+      {sub?.status === 'pending' && <span className="muted small">A payment is being set up. This line changes once {sub.provider} confirms it.</span>}
+      {data.selling &&
+        offers.map((p) => (
+          <div key={p.code} className="inline spread">
+            <span>
+              <b>{p.name}:</b> {planWords(p)}
+              {p.price_inr ? ` — ₹${p.price_inr} a month` : ''}
+            </span>
+            {data.providers.map((provider) => (
+              <button key={provider} type="button" disabled={busy} onClick={() => void upgrade(p.code, provider)}>
+                {data.providers.length > 1 ? `Upgrade with ${provider}` : 'Upgrade'}
+              </button>
+            ))}
+          </div>
+        ))}
+    </>
+  )
+}
+
 function AccountsCard() {
   const { toast } = useApp()
   const [data, setData] = useState<Accounts | null>(null)
@@ -966,6 +1050,7 @@ export default function SettingsPage() {
           <span>
             <b>{profile.plan.custom ? 'Your limits' : `${profile.plan.name} plan`}:</b> {planWords(profile.plan)}.
           </span>
+          <PlanChoice />
           <div className="inline spread">
             <span>
               <span className="mono">{money(spend.month_usd)}</span> of <span className="mono">{money(spend.cap_usd)}</span> used this month

@@ -123,6 +123,20 @@ screens) runs as the service (`backend/database/tenant.py`, migration `0013_rls`
   companies the plan follows. The admin can give any one account its own numbers for all
   three (Settings > Accounts > Limits; an empty box is the plan's number) and is not held to
   the plan themselves. A user can lower their own AI limit and daily cap, never raise them.
+- **Plus, the paid plan** (`JAP_PLUS_*`) is the same three numbers, larger: 10 companies, 10
+  applications a day, and an AI allowance set well above what those applications can spend,
+  because it is a guard against a runaway and not the thing being bought. Settings shows it
+  under **Your plan** with an Upgrade button, which goes to a page the payment provider
+  hosts: no card detail is typed into JAP and no payment script runs on its pages. The
+  provider tells JAP what came of it by posting to `/api/webhooks/<provider>`, which trusts
+  a signature over the raw body and nothing else. `JAP_BILLING_ENABLED=false`, the default,
+  means nothing is for sale and the Upgrade button is not there at all.
+- **When a payment fails** nobody is cut off that day. The plan is kept until the period
+  already paid for ends, and `JAP_BILLING_GRACE_DAYS` after it, because the provider is
+  still retrying and on Indian rails a recurring charge needs a day's notice to the payer
+  before it is even attempted. Cancelling works the same way: it stops the renewal, and the
+  plan runs to the end of what was paid for. Deleting an account cancels the mandate first,
+  so nothing goes on charging someone who no longer has an account.
 - **AI limits.** An account's allowance pays for work done for it: parsing its resume,
   drafting answers, writing cover letters. Reading shared job descriptions is billed to the
   service instead (`JAP_SYSTEM_COST_CAP_USD`), which users never see, and everything together

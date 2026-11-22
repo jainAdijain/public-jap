@@ -46,6 +46,32 @@ class Settings(BaseSettings):
     # loses every saved key, and users paste theirs again.
     jap_secret_key: str = ""
 
+    # The Plus plan (IDEA-21), the one thing that is sold. Its AI allowance is sized well
+    # above what its applications can spend, because it is a guard against a runaway and
+    # not the thing being bought (pipeline/limits.py). The prices are for display only: the
+    # amount actually charged is the one set on the plan at the payment provider, and the
+    # two have to be kept in step by hand.
+    jap_plus_ai_usd: float = 8.0
+    jap_plus_boards: int = 10
+    jap_plus_daily_applications: int = 10
+    jap_plus_price_inr: int = 499
+    jap_plus_price_usd: float = 9.0
+    # How long a plan outlives the period it was paid for when a renewal fails. Never zero:
+    # the provider is still retrying, and an account must not lose its plan on the day.
+    jap_billing_grace_days: int = 3
+    # Off until a provider is configured: no Upgrade in Settings and /api/billing/checkout
+    # refuses. Nothing else about a plan changes, so an account that already has one keeps it.
+    jap_billing_enabled: bool = False
+
+    # Razorpay, which sells in India (IDEA-21). The key id and secret are the API login, the
+    # webhook secret signs what Razorpay posts back, and the plan id is the plan Plus is
+    # bought as — created once in their dashboard, since its price is theirs to hold.
+    # Empty means a stand-in for the real API (tests set it); never a real key in .env.example.
+    razorpay_key_id: str = ""
+    razorpay_key_secret: str = ""
+    razorpay_webhook_secret: str = ""
+    razorpay_plan_id_plus: str = ""
+    razorpay_url: str = "https://api.razorpay.com"
     # The mailbox JAP sends from (E4): any SMTP server with a password, GoDaddy Professional
     # Email by default. A local test mailbox can take plain SMTP (SMTP_SSL=false) instead.
     smtp_host: str = "smtpout.secureserver.net"
