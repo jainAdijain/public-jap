@@ -355,6 +355,13 @@ details > summary { cursor: pointer; }
 .tick input { margin-top: 2px; }
 .notice-read > summary { cursor: pointer; font-weight: 500; }
 .notice-read .notice-scroll { margin-top: 10px; }
+.notice hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
+/* The lawful-basis and who-else-sees-it tables in the privacy notice (IDEA-23). */
+.legal-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.legal-table th, .legal-table td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+.legal-table th { background: var(--hover); font-weight: 600; }
+/* A fact the operator still has to fill in; shows only while the notice is a draft. */
+.notice .todo { background: var(--warn-bg, #fff4d6); padding: 0 4px; border-radius: 3px; }
 
 /* Insights (PRD O10 to O12) */
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }

@@ -7,7 +7,7 @@ import { ago, errorText, plural } from './format'
 import InsightsPage from './pages/InsightsPage'
 import JobsPage from './pages/JobsPage'
 import PreferencesPage from './pages/PreferencesPage'
-import PrivacyNotice from './pages/PrivacyPage'
+import Legal from './pages/LegalPage'
 import ProfilePage from './pages/ProfilePage'
 import SettingsPage from './pages/SettingsPage'
 import SignInPage, { TermsTick } from './pages/SignInPage'
@@ -147,7 +147,7 @@ function TermsGate({ user, version, onAccepted, onSignOut }: { user: User; versi
     return (
       <main className="auth">
         <div className="auth-card wide">
-          <PrivacyNotice />
+          <Legal />
           <button type="button" className="btn-primary auth-submit" onClick={() => setReading(false)}>
             Back
           </button>

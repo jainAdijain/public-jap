@@ -46,7 +46,7 @@ COMPOSE_FILES := -f infra/compose.yaml $(if $(RELEASE),-f infra/compose.release.
 COMPOSE := docker compose -p $(JAP_PROJECT) --env-file $(ENV_FILE) $(COMPOSE_FILES)
 
 .DEFAULT_GOAL := help
-.PHONY: help env deploy tunnel-status start stop restart reset clean logs ps migrate seed test test-app test-ui test-agents test-host setup-host hooks worktree worktree-list worktree-remove vm-sync vm-sync-auto vm-sync-auto-off vm-ps vm-tunnel vm-tunnel-off qa backup backup-pull restore close-unfollowed form-check health-check errors two-step-off sign-out-all set-password email-test code-mail-check ollama-check llm-check demo demo-clear
+.PHONY: help env deploy tunnel-status start stop restart reset clean logs ps migrate seed test test-app test-ui test-agents test-host lock setup-host hooks worktree worktree-list worktree-remove vm-sync vm-sync-auto vm-sync-auto-off vm-ps vm-tunnel vm-tunnel-off qa capacity load-test backup backup-pull restore close-unfollowed form-check health-check errors two-step-off sign-out-all set-password email-test code-mail-check ollama-check llm-check demo demo-clear
 
 help: ## List the targets
 	@grep -hE '^[a-z-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-13s %s\n", $$1, $$2}'
@@ -133,6 +133,13 @@ test-app:
 test-ui:
 	$(COMPOSE) exec ui sh -c 'npm run lint && npm run build'
 
+lock: ## Repin backend/requirements.lock from pyproject.toml (after changing a dependency)
+	@command -v uv > /dev/null || { echo "uv is needed: https://docs.astral.sh/uv/"; exit 1; }
+	cd backend && uv pip compile pyproject.toml --all-extras --universal --generate-hashes \
+		--python-version 3.12 -o requirements.lock --quiet
+	@git -C . diff --stat -- backend/requirements.lock || true
+	@echo "Repinned. Rebuild the image (make start) so it runs what the lock now says."
+
 setup-host: ## Prepare this machine for test-host: .venv, Chromium, npm ci, a Postgres (no Docker stack)
 	@infra/scripts/agent-setup.sh
 
@@ -208,6 +215,9 @@ health-check: ## Run the hourly health watch now: delete old log rows, email ale
 
 capacity: ## How long an application takes and how many fit in a browser-hour: make capacity [DAYS=30]
 	@$(COMPOSE) exec -T app python -m observability.capacity $(DAYS)
+
+load-test: ## Does one server hold 150 accounts? Builds a scratch database and reports: make load-test [USERS=150]
+	@$(COMPOSE) exec -T app python -m observability.loadtest $(USERS)
 
 errors: ## The last 20 warnings and errors JAP logged (log_event, kept 30 days)
 	@$(COMPOSE) exec -T db psql -U $(or $(POSTGRES_USER),jap) -d $(or $(POSTGRES_DB),jap) -c \

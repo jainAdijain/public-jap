@@ -259,6 +259,11 @@ still passes locally.
   `.env`). Every new setting also goes in `.env.example` with a comment saying what it does.
 - Migrations are Alembic, numbered in order: `backend/database/migrations/versions/000N_name.py`.
   Both ruff and mypy exclude that folder. Apply with `make migrate`.
+- **Dependencies are locked.** `pyproject.toml` says what JAP depends on; the app image, CI
+  and `make setup-host` all install from `backend/requirements.lock`, which pins an exact
+  build of each and checks it against a hash. Adding or changing a dependency means editing
+  `pyproject.toml` and then running **`make lock`**, in the same commit — otherwise CI and
+  the image keep running the old version and nothing says so.
 - Module docstrings explain *why* and cite the PRD id. Follow that; the codebase is unusually
   well commented and a bare file stands out.
 

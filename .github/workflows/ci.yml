@@ -33,10 +33,14 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/pyproject.toml
-      - run: pip install ".[dev]"
+          cache-dependency-path: backend/requirements.lock
+      # The exact builds the app image installs, verified by hash, so CI and the server
+      # never run different versions of anything (IDEA-23). `make lock` repins them.
+      - run: pip install --require-hashes -r requirements.lock
       # The apply tests read and submit local forms in a real headless Chromium.
       - run: python -m playwright install --with-deps chromium
+      # age encrypts the daily dump (IDEA-11); without it that test skips instead of running.
+      - run: sudo apt-get update && sudo apt-get install -y age
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy .
@@ -66,6 +70,58 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 infra/scripts/agent-guard.py --self-test
       - run: infra/scripts/check-tracked.sh
+
+  audit:
+    name: audit (known vulnerabilities, leaked secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks reads the history, not just the files that are here now.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Known vulnerabilities in what JAP actually installs. The lock is the real list:
+      # auditing pyproject would audit the ranges, not the builds that ship (IDEA-23).
+      - run: pip install pip-audit
+      - run: pip-audit --requirement backend/requirements.lock --disable-pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      # A vulnerability only matters here if it can be reached from the built UI, and
+      # everything in this tree is a build-time tool; so production dependencies fail the
+      # job and the rest is reported and moves on.
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: frontend
+      - run: npm audit || true
+        working-directory: frontend
+      # check-tracked.sh refuses the files and key shapes JAP knows about; this is the
+      # general sweep, over every commit, for anything that looks like a credential.
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  image:
+    name: image (builds, no high-severity CVEs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The image the server runs, scanned before a tag ever builds it for real. The base
+      # is Playwright's, which carries a lot: only HIGH and CRITICAL with a fix available
+      # fail, or this is red every week for things nobody can act on.
+      - run: docker build -f infra/docker/app.Dockerfile -t jap-app:ci .
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: jap-app:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
 
   compose:
     name: compose file is valid

@@ -140,6 +140,13 @@ class Settings(BaseSettings):
     # account removes those.
     jap_keep_traces_days: int = 30
     jap_keep_screenshots_days: int = 180
+    # An age public key (age1...). Set it and every dump is encrypted to that recipient as
+    # it is written, so the only copy that ever touches the disk is already unreadable
+    # (IDEA-11). The server holds the **public** key alone: losing the whole machine, or
+    # the hosting account it sits in, does not hand anyone the resumes and answers inside
+    # the dump, because the private key is kept off the server. Empty means a plain
+    # .sql.gz, which is what local development wants and what live must not run on.
+    jap_backup_age_recipient: str = ""
 
     # Where the confirmation email links back to (the frozen JD in the side panel).
     jap_ui_url: str = "http://localhost:5173"

@@ -4,6 +4,7 @@ The browser and the model are stubbed as in test_apply; the backup test runs the
 pg_dump when the app container has it (CI has no matching client, so it is skipped there).
 """
 
+import asyncio
 import gzip
 import shutil
 import uuid
@@ -17,6 +18,7 @@ import psycopg
 import pytest
 
 import llm.client as client
+from config import get_settings
 from database.session import get_sessionmaker
 from functions.notify_failure import mark_step, send_step
 from functions.triggers import daily_step
@@ -315,16 +317,97 @@ async def test_backup_files(db: str, tmp_path: Path) -> None:
     except backup.BackupFailed as exc:
         pytest.skip(f"pg_dump here can't dump this server: {exc}")
     assert backup.has_today()
+    assert not made.encrypted and made.path.name.endswith(".sql.gz")
     with gzip.open(made.path) as dump:
         assert b"CREATE TABLE public.application" in dump.read()
     assert not list(folder.glob("*.part"))
+
+
+async def _run(*cmd: str, stdin: bytes | None = None) -> bytes:
+    """A command, awaited, for the age round trip (ruff ASYNC221 bars subprocess.run here)."""
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdin=asyncio.subprocess.PIPE if stdin is not None else None,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    out, err = await proc.communicate(stdin)
+    assert proc.returncode == 0, f"{cmd[0]} failed: {err.decode(errors='replace')}"
+    return out
+
+
+async def test_backup_encrypted_to_a_key_the_server_does_not_hold(
+    db: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """IDEA-11: with a recipient set, the dump that reaches the disk is already unreadable.
+
+    The round trip is the point: encrypted with the public key alone, and openable only by
+    the private key, which on live lives off the server.
+    """
+    if shutil.which("pg_dump") is None or shutil.which("age") is None:
+        pytest.skip("pg_dump and age are needed here (the app image has both)")
+    # stdout is the private key, with the public one in a comment above it.
+    generated = (await _run("age-keygen")).decode()
+    key_file = tmp_path / "backup-key.txt"
+    key_file.write_text(generated)
+    recipient = next(
+        line.split(": ")[1].strip()
+        for line in generated.splitlines()
+        if line.startswith("# public key: ")
+    )
+    monkeypatch.setenv("JAP_BACKUP_AGE_RECIPIENT", recipient)
+    get_settings.cache_clear()
+    try:
+        assert backup.age_ready() == (True, f"On: dumps are encrypted to {recipient[:12]}…")
+        try:
+            made = await backup.run_backup()
+        except backup.BackupFailed as exc:
+            pytest.skip(f"pg_dump here can't dump this server: {exc}")
+        assert made.encrypted and made.path.name.endswith(".sql.gz.age")
+        assert made.as_dict()["encrypted"] is True
+        # On disk it is age's own container, not a gzip, and the database is not in it.
+        raw = made.path.read_bytes()
+        assert raw.startswith(b"age-encryption.org/")
+        assert b"CREATE TABLE public.application" not in raw
+        with pytest.raises(gzip.BadGzipFile):
+            gzip.decompress(raw)
+        # And the private key gets it all back.
+        opened = await _run("age", "--decrypt", "--identity", str(key_file), stdin=raw)
+        assert b"CREATE TABLE public.application" in gzip.decompress(opened)
+        assert backup.has_today()
+        assert not list(backup.backup_dir().glob("*.part"))
+    finally:
+        get_settings.cache_clear()
+
+
+async def test_backup_refuses_plaintext_when_age_is_missing(
+    db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recipient set with no `age` must fail loudly, never fall back to a clear dump."""
+    monkeypatch.setenv("JAP_BACKUP_AGE_RECIPIENT", "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq")
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    get_settings.cache_clear()
+    try:
+        ready, detail = backup.age_ready()
+        assert not ready and "not installed" in detail
+    finally:
+        get_settings.cache_clear()
 
 
 async def test_ops_endpoint(
     api: httpx.AsyncClient, events: list[tuple[str, dict[str, Any]]]
 ) -> None:
     ops = (await api.get("/api/ops")).json()
-    assert ops == {"last_backup": None, "backups": 0, "backup_today": False, "form_checks": []}
+    assert ops == {
+        "last_backup": None,
+        "backups": 0,
+        "backup_today": False,
+        "backups_encrypted": False,
+        "backups_encryption": (
+            "Off: dumps are written in the clear (set JAP_BACKUP_AGE_RECIPIENT on live)"
+        ),
+        "form_checks": [],
+    }
     assert (await api.post("/api/ops/backup")).status_code == 202
     assert events[-1] == ("backup/requested", {})
     missing = await api.get(f"/api/ops/form-check/{uuid.uuid4()}/screenshot")

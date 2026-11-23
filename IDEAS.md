@@ -26,7 +26,7 @@ limits, is built on the `tenancy` branch and is not listed.
 | [IDEA-8](#idea-8--a-your-plan-line-in-settings) | 1 follow-up | Built (v0.19.0) | A "Your plan" line in Settings |
 | [IDEA-9](#idea-9--invites) | - | Open | Invites |
 | [IDEA-10](#idea-10--an-always-on-server-instead-of-the-mac) | 3 | Built (v0.21.0) | An always-on server instead of the Mac |
-| [IDEA-11](#idea-11--encrypted-off-site-backups) | 3 | Open | Encrypted off-site backups |
+| [IDEA-11](#idea-11--encrypted-off-site-backups) | 3 | Built (unreleased) | Encrypted off-site backups |
 | [IDEA-12](#idea-12--no-adminer-and-no-user-content-for-the-admin-on-the-public-stack) | 3 | Built (v0.21.0) | No Adminer, and no user content for the admin, on the public stack |
 | [IDEA-13](#idea-13--request-hardening) | 3 | Built (v0.21.0) | Request hardening |
 | [IDEA-14](#idea-14--a-retention-period-for-traces-and-screenshots) | 3 | Built (v0.21.0) | A retention period for traces and screenshots |
@@ -38,7 +38,7 @@ limits, is built on the `tenancy` branch and is not listed.
 | [IDEA-20](#idea-20--a-decision-on-job-site-blocking-and-terms-of-use) | 4 | Open | A decision on job-site blocking and terms of use |
 | [IDEA-21](#idea-21--paid-plans) | 5 | Built (v0.23.0) | Paid plans |
 | [IDEA-22](#idea-22--a-browser-extension-that-submits-from-the-users-own-machine) | 5 | Open | A browser extension that submits from the user's own machine |
-| [IDEA-23](#idea-23--the-public-launch-review) | 6 | Open | The public launch review |
+| [IDEA-23](#idea-23--the-public-launch-review) | 6 | Part built (unreleased) | The public launch review |
 | [IDEA-24](#idea-24--a-devin-cloud-blueprint-and-the-untested-setup-path) | - | Open | A Devin cloud blueprint, and the untested setup path |
 
 ---
@@ -135,8 +135,19 @@ for files, Inngest Cloud.
 
 ## IDEA-11 — Encrypted off-site backups
 
-**Status:** Open, and deliberately only part done in v0.21.0. Recorded 17 Nov 2026, from the
-public-jap plan (Phase 3).
+**Status:** Built, on the launch branch, not yet released. Recorded 17 Nov 2026, from the
+public-jap plan (Phase 3); the encryption half was deliberately left out of v0.21.0.
+
+What was built: `JAP_BACKUP_AGE_RECIPIENT` takes an `age` public key, and `pg_dump` is piped
+through `age` on its way to disk, so the first thing that reaches the disk is ciphertext and
+the file is `jap-….sql.gz.age`. One setting covers all three copies at once — the daily dump,
+the provider's disk snapshot that contains it, and whatever `backup-pull` leaves on the Mac.
+The server is given the public key only, so it cannot read its own backups; `make restore`
+takes `KEY=` for the private one. Settings > Status says whether encryption is really on,
+because a recipient set with no `age` in the image would otherwise surface only as a failed
+backup. Full-disk encryption was considered and **dropped**, with the reason written down in
+README (Backups): the key must live on a machine that boots unattended, so it defends against
+a stolen disk and little else.
 
 `pg_dump` encrypted to object storage on a documented schedule, and full-disk encryption on the
 server. Resume text and answers stay plaintext in the database because trigram matching needs
@@ -316,10 +327,37 @@ the person it is. Nothing happens while their laptop is closed, so automatic mod
 
 ## IDEA-23 — The public launch review
 
-**Status:** Open. Recorded 17 Nov 2026, from the public-jap plan (Phase 6).
+**Status:** Part built, on the launch branch, not yet released. Recorded 17 Nov 2026, from the
+public-jap plan (Phase 6).
 
 Before announcing: a privacy policy and terms with a view on the DPDP Act and GDPR, a load test,
 and a security review.
+
+What was built:
+
+- **The documents.** The one "terms and privacy notice" page is now a terms of service and a
+  privacy notice, with what the GDPR's Article 13 asks for and the draft had none of: the
+  controller, a contact, the lawful basis per purpose, retention periods, who the data reaches
+  and on what transfer basis, automated decision-making, a minimum age, and where to complain.
+  The draft banner is no longer a flag someone has to remember to turn off — it is computed
+  from the four operator facts that cannot be guessed from the code, so filling those in is
+  what makes it stop being a draft.
+- **Every claim is a test.** `backend/tests/test_privacy_claims.py` holds each sentence the
+  notice makes and the behaviour behind it, so editing one without the other fails. Claims that
+  cannot be tested are listed with the reason.
+- **The load test.** `make load-test` at 150 accounts. It found that the first thing to break
+  is not the machine but `JAP_TOTAL_COST_CAP_USD`: $155 a month of free allowances against a
+  $20 stop. The capacity table is in README (Before going public).
+- **The security review.** `/api/health` now tells a stranger only whether it is up; the
+  dependencies are pinned and hashed in `backend/requirements.lock` with `make lock` to repin;
+  pip-audit, npm audit, gitleaks and Trivy run in CI, with Dependabot behind them; there is a
+  `security.txt`, a breach runbook and a staged roll-out in README. The SSRF half of IDEA-13
+  was checked and was already done in v0.21.0.
+
+What is left, and is Aditya's rather than code: filling in `OPERATOR`, reading the wording as a
+legal statement in his own name, raising `TERMS_VERSION` once with the final text, settling the
+AI spend question the load test raised, settling IDEA-20, and the review by a trusted second
+pair of eyes. The checklist is in README (Before going public).
 
 ## IDEA-24 — A Devin cloud blueprint, and the untested setup path
 

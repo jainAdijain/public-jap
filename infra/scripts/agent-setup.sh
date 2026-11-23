@@ -36,10 +36,15 @@ if [ ! -x .venv/bin/python ]; then
     python3 -m venv .venv
   fi
 fi
+# From the lock, so this machine runs the versions CI and the app image run: a ruff or
+# mypy that differs by a patch release is a `make test-host` that disagrees with CI for
+# reasons nobody can see (IDEA-23). `make lock` repins it.
 if command -v uv > /dev/null; then
-  (cd backend && uv pip install --quiet --python "$ROOT/.venv/bin/python" ".[dev]")
+  (cd backend && uv pip install --quiet --python "$ROOT/.venv/bin/python" \
+    --require-hashes -r requirements.lock)
 else
-  (cd backend && "$ROOT/.venv/bin/python" -m pip install --quiet ".[dev]")
+  (cd backend && "$ROOT/.venv/bin/python" -m pip install --quiet \
+    --require-hashes -r requirements.lock)
 fi
 
 say "Chromium for the apply tests"

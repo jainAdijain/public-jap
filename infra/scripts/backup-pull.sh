@@ -6,6 +6,12 @@
 # you lose every copy at once. This is the off-site one — hardware you own, reachable
 # without the provider — and it costs nothing but the transfer.
 #
+# It copies whatever shape the newest dump is, and says so. With JAP_BACKUP_AGE_RECIPIENT
+# set on the server that is a .sql.gz.age, encrypted to a key this Mac holds and the server
+# does not (IDEA-11), so the copy that lands here is unreadable to anyone who takes the
+# laptop. A plaintext .sql.gz is still pulled — an old backup is better than none — but it
+# is called out, because it means live is writing dumps in the clear.
+#
 # Read-only on the server: it lists and copies, and changes nothing there.
 set -eu
 cd "$(dirname "$0")/../.."
@@ -18,7 +24,7 @@ SERVER="${1:-}"
 REMOTE_DIR="${JAP_SERVER_DIR:-/srv/public-jap}/data-live/backups"
 LOCAL_DIR="data/backups-live"
 
-newest=$(ssh "$SERVER" "ls -1t '$REMOTE_DIR'/jap-*.sql.gz 2>/dev/null | head -1") || {
+newest=$(ssh "$SERVER" "ls -1t '$REMOTE_DIR'/jap-*.sql.gz '$REMOTE_DIR'/jap-*.sql.gz.age 2>/dev/null | head -1") || {
   echo "Could not list $REMOTE_DIR on $SERVER" >&2
   exit 1
 }
@@ -33,4 +39,9 @@ fi
 scp -q "$SERVER:$newest" "$LOCAL_DIR/$name.part"
 mv "$LOCAL_DIR/$name.part" "$LOCAL_DIR/$name"
 echo "Pulled $LOCAL_DIR/$name ($(wc -c < "$LOCAL_DIR/$name" | tr -d ' ') bytes)"
-echo "Copies kept here: $(ls -1 "$LOCAL_DIR"/jap-*.sql.gz 2>/dev/null | wc -l | tr -d ' ')"
+echo "Copies kept here: $(ls -1 "$LOCAL_DIR"/jap-*.sql.gz "$LOCAL_DIR"/jap-*.sql.gz.age 2>/dev/null | wc -l | tr -d ' ')"
+case "$name" in
+  *.age) echo "Encrypted: open it with make restore FILE=$LOCAL_DIR/$name KEY=<your age key>" ;;
+  *) echo "WARNING: this dump is NOT encrypted — it is every user's data in the clear, now on this Mac too." >&2
+     echo "         Set JAP_BACKUP_AGE_RECIPIENT on the server (IDEA-11, README: Backups)." >&2 ;;
+esac

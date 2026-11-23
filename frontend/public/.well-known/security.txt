@@ -1,0 +1,24 @@
+# How to report a security problem in JAP (RFC 9116, IDEA-23).
+#
+# Vite copies frontend/public/ into the build, and Caddy serves it, so this ends up at
+# https://<host>/.well-known/security.txt with no route and no server behind it.
+#
+# The contact below is a placeholder while the notice is still a draft. It is filled in
+# from the same fact as everything else — OPERATOR.email in frontend/src/pages/LegalPage.tsx
+# — and backend/tests/test_privacy_claims.py fails if the notice stops being a draft while
+# this file still says TO BE FILLED IN, so the two cannot go live out of step.
+#
+# Expires has to be a date in the future or this file is not valid. Move it on each year.
+
+Contact: mailto:TO BE FILLED IN
+Expires: 2027-11-22T00:00:00.000Z
+Preferred-Languages: en
+
+# JAP is one person's project and holds other people's resumes, so the things worth
+# reporting are, in order: reading another account's data, signing in as someone else,
+# anything that makes JAP submit an application that is not the account holder's, and
+# reaching the server or the OpenRouter key.
+#
+# Please do not run automated scanners against the live site: it applies for real jobs on
+# behalf of real people, and a scanner that trips the apply path sends rubbish to an
+# employer in a user's name. Ask first and you will get a test account.

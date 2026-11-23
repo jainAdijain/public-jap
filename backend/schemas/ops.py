@@ -8,6 +8,7 @@ class BackupOut(BaseModel):
     file: str
     at: datetime
     bytes: int
+    encrypted: bool
 
 
 class FormCheckOut(BaseModel):
@@ -28,6 +29,11 @@ class Ops(BaseModel):
     last_backup: BackupOut | None
     backups: int
     backup_today: bool
+    # Whether dumps are being encrypted, and why not when they are not (IDEA-11). A
+    # recipient set with no `age` to run it would otherwise show up only as a failed
+    # backup, and live writing plaintext dumps should be visible without reading a log.
+    backups_encrypted: bool
+    backups_encryption: str
     form_checks: list[FormCheckOut]
 
 

@@ -494,9 +494,16 @@ nothing; the only data that leaves is redacted errors sent to Sentry, and only w
 - **Sentry** (optional, free Developer plan): create a project at sentry.io, put its DSN in
   `SENTRY_DSN` and restart. Only errors are sent, with no request bodies, cookies, headers or
   local variables, and every message scrubbed.
-- **Uptime from outside** (O7): once prod is public, add a free uptime check (a Cloudflare
+- **Uptime from outside** (O7): once live is public, add a free uptime check (a Cloudflare
   health check, or a free monitor such as UptimeRobot) on `https://jap.tutorial.monster/api/health`
   every 5 minutes, emailing you when it fails. It works even when the Mac is asleep.
+  `/api/health` is open, because a monitor cannot sign in, but **what it says depends on who
+  asks** (IDEA-23): a stranger — anything arriving through the tunnel — gets `{"ok": true}`
+  and nothing more, which is all a monitor needs. Which environment this is and the state of
+  the database, Inngest and Ollama go only to a signed-in admin and to callers inside the
+  stack (loopback, no proxy headers), which is how `wait-for-health.sh` and Docker's own
+  health checks still see everything. Telling the internet that Ollama is down is telling it
+  what to try next.
 
 Part B comes after sign-in step 2: the user on every log line, Health for the admin only,
 first-party usage counts (`usage_event`), each user's own Insights, and per-user counts and
@@ -682,6 +689,27 @@ resumes and answers now. `make backup-pull` costs nothing, runs from the Mac, an
 copy on hardware you own. Run it after anything important, and restore one occasionally: a
 backup nobody has ever restored is a hope, not a backup.
 
+**Encrypted, to a key the server does not have** (IDEA-11). Set `JAP_BACKUP_AGE_RECIPIENT`
+on live to an `age` public key and every dump is encrypted as it is written, landing as
+`jap-….sql.gz.age`. That one setting covers all three rows at once: the daily file, the
+disk snapshot that contains it, and the copy `backup-pull` leaves on the Mac are all
+ciphertext. The server holds only the public key, so taking the server does not get anyone
+the data, and the server cannot read its own backups either.
+
+```bash
+age-keygen -o ~/.config/jap/backup-key.txt     # on the Mac, once. Keep this file safe.
+# Put the "public key: age1..." line it prints into JAP_BACKUP_AGE_RECIPIENT in .env.live.
+make restore ENV=live FILE=data-live/backups/jap-….sql.gz.age KEY=~/.config/jap/backup-key.txt
+```
+
+Lose `backup-key.txt` and every encrypted backup is gone for good, so it belongs wherever
+your other irreplaceable keys live, not only on the laptop. Settings > Status says whether
+encryption is actually on, because a recipient set with no `age` in the image would
+otherwise show up only as a failed backup. Full-disk encryption on the server was
+considered and **not** done: the key would have to sit on a machine that boots unattended,
+so it protects against a stolen disk and very little else, while this protects against the
+case that can actually happen — the hosting account going away with every copy inside it.
+
 ### What is on the server and what is not
 
 Adminer is not in the live stack, so there is no database browser on the public machine. The
@@ -694,6 +722,95 @@ Caddy sends a content security policy with every page, which allows scripts from
 and Cloudflare Turnstile and nothing else, so adding anything to the UI that loads from a new
 host means adding it to `infra/caddy/Caddyfile` too. The sign-up page is the one to check
 afterwards, because Turnstile is the only third-party script JAP loads.
+
+## Before going public
+
+JAP accepts sign-ups from anyone, holds their resumes and applies for jobs in their name.
+This is what has to be true before the address is given to strangers (IDEA-23), and what
+is already true today.
+
+### How big it goes, and what gives first
+
+`make load-test` builds a scratch database of 150 accounts and a few hundred shared
+companies, runs the match every search ends with for every account, hits the signed-in
+pages twenty at a time, and prints a verdict against budgets fixed in advance. It calls no
+model, fetches no board and submits nothing, so it costs nothing to run.
+
+At 150 accounts sending 20 applications a month — about 100 a day — **the machine is not
+the problem and the money is**:
+
+| | Measured | Budget |
+| --- | --- | --- |
+| One account's match over 12,000 listings | 3 ms | — |
+| All 150 accounts' matches, one after another | 0.5 s | an hour |
+| A signed-in page, 95th percentile, 20 at once | ~370 ms | 500 ms |
+| Database connections at full stretch | 30 | 80 of 100 |
+| Browser-hours of applying a day | 3.3 | 96 (4 browsers) |
+| Disk held by screenshots and traces | ~25 GB | — |
+| **AI spend if every account uses its cap** | **$155 a month** | **$20** |
+
+So the first thing to break is `JAP_TOTAL_COST_CAP_USD`: 150 accounts on the free $1 each,
+plus the $5 the service spends reading shared job descriptions, is $155 a month against a
+$20 stop. Nobody is slow — everybody stops. Before opening sign-up, decide which of these
+it is: raise the total cap and pay the bill, lower the free per-account allowance, hold
+sign-up at a number the cap fits (about 15 accounts at today's settings), or make paid
+plans the way past it. The disk figure is the other one worth a look: 25 GB of screenshots
+and traces at the current retention is most of a small server's disk.
+
+Two numbers in that table are assumptions, not measurements, and are marked as such in the
+output: that one application holds a browser for about 120 seconds, which `make capacity`
+answers from applications that really happened, and that embedding keeps up on the
+server's CPU, which `make ollama-check` and a real run answer.
+
+### The checklist
+
+- [ ] Fill in `OPERATOR` in `frontend/src/pages/LegalPage.tsx` — name, postal address,
+      contact address, governing law. The draft banner is computed from those four, so
+      filling them in is what makes the terms and the notice stop calling themselves a
+      draft, and `make test` then insists `security.txt` carries the real address too.
+- [ ] Read the terms and the privacy notice as a legal statement in your own name, not as
+      a description of the code. The code half is kept honest by
+      `backend/tests/test_privacy_claims.py`; the wording is yours.
+- [ ] Raise `TERMS_VERSION` in `backend/auth/consent.py` **once**, with the final wording,
+      so the handful of accounts that agreed to the draft are asked again at launch and
+      not twice in a week.
+- [ ] Settle the AI spend question above.
+- [ ] Settle IDEA-20: whether Automatic mode is offered to the public at all.
+- [ ] `JAP_BACKUP_AGE_RECIPIENT` set on live, and one encrypted backup actually restored.
+- [ ] An uptime check on `https://<host>/api/health` every five minutes (O7). A stranger
+      gets `{"ok": true}` and nothing else from it, which is all a monitor needs; the
+      service-by-service detail goes only to the admin and to callers inside the stack.
+- [ ] Decide what the first week's limit is, and who it is given to.
+
+### Letting people in slowly
+
+Sign-up can be paused from Settings > Accounts, which is the brake between each step:
+the trusted reviewer first, then about ten people who will tell you when something is
+wrong, then open. Stop at each step if applications are failing, if the AI spend is
+tracking above what the cap allows, if a job site starts refusing submissions
+(Settings > Status shows refusals and code challenges per site), or if anything in
+`make errors` repeats.
+
+### If something leaks
+
+A breach is the one thing JAP cannot fix after the fact, so the order is decided now
+rather than at the time.
+
+1. **Stop the bleeding.** Pause sign-up, `JAP_SUBMIT_ENABLED=false`, and if the server
+   itself is suspect, `make stop ENV=live` on the server — the tunnel is part of the stack,
+   so stopping it takes the site off the internet.
+2. **Keep the evidence.** Take a backup before changing anything; `make errors` and the
+   `log_event` rows are scrubbed but still show what ran when.
+3. **Work out whose data and what.** The private tables are the list in
+   `database/tenant.py`; `llm_call` and `log_event` carry no personal content by design.
+4. **Tell people.** Under the DPDP Act the Data Protection Board and the affected users;
+   under the GDPR the supervisory authority within 72 hours of becoming aware, and the
+   users themselves when the risk to them is high. Say what happened, what was taken, what
+   has been done, and what they should do.
+5. **End every session** (`make sign-out-all`), rotate the OpenRouter key, the mailbox
+   password, `JAP_SECRET_KEY` and the tunnel token, and write up what let it happen.
+
+Someone outside reports problems through `/.well-known/security.txt`.
 
 ## Make targets
 
@@ -716,6 +833,8 @@ afterwards, because Turnstile is the only third-party script JAP loads.
 | `make close-unfollowed` | List open postings of companies you no longer follow; `APPLY=1` closes them (back up first) |
 | `make code-mail-check` | Log in to the mailbox over IMAP and count the Greenhouse emails it holds (security codes, PRD A5) |
 | `make qa` | Dedup QA set: place the 106 labelled job pairs and print the accuracy |
+| `make load-test` | Does one server hold 150 accounts? Builds a scratch database, measures matching, the pages and the ceilings, and prints a verdict (`USERS=` to change the size). Calls no model and submits nothing |
+| `make lock` | Repin `backend/requirements.lock` from `pyproject.toml`, after changing a dependency |
 | `make form-check` | Read one live form per ATS now (the weekly form test); nothing is submitted |
 | `make set-password EMAIL=...` | Set a new password for an account from the machine (asks twice) |
 | `make two-step-off EMAIL=...` | Turn two-step sign-in off for an account (phone and recovery codes lost) |

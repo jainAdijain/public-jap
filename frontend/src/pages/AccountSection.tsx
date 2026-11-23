@@ -5,7 +5,7 @@ import { useApp } from '../appContext'
 import { useAuth } from '../authContext'
 import { DeleteMyAccount, ExportMyData } from '../components/YourData'
 import { errorText } from '../format'
-import PrivacyNotice from './PrivacyPage'
+import Legal from './LegalPage'
 
 // Settings > Account (PRD U21): password, two-step sign-in with recovery codes, sign out.
 
@@ -226,7 +226,7 @@ export default function AccountSection() {
           <summary>Terms and privacy notice</summary>
           <p className="help">{user.terms_accepted ? 'You have agreed to this notice as it stands.' : 'You have not agreed to this notice yet.'}</p>
           <div className="notice-scroll">
-            <PrivacyNotice />
+            <Legal />
           </div>
         </details>
 
