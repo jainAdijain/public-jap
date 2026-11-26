@@ -21,7 +21,7 @@ dependencies = [
     "segno>=1.6",
     "sentry-sdk>=2.18,<3",
     # Seals each user's own OpenRouter key at rest (IDEA-19, llm/secrets.py).
-    "cryptography>=48.0.1,<49",
+    "cryptography>=50,<51",
 ]
 
 [project.optional-dependencies]

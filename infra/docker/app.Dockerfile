@@ -10,9 +10,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # pg_dump for the daily backup into data/backups (functions/backup.py); noble ships 16.
 # age encrypts that dump to a public key when JAP_BACKUP_AGE_RECIPIENT is set (IDEA-11):
 # without it here, live would fall back to writing every user's data to disk in the clear.
+#
+# The upgrade takes the security fixes Ubuntu has released since Playwright built its image
+# (apt and libbrotli1 were HIGH in the CI scan); the image is only as patched as its last
+# build, so the CI image check is what notices when that has drifted again.
+#
+# virtualenv and filelock come with the base image, not from JAP, and nothing here uses
+# them; nor does virtualenv's wheel cache, which held old certifi, msgpack, setuptools and
+# urllib3. Removing them is cleaner than upgrading packages the lock does not pin.
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends postgresql-client age \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && (pip uninstall -y virtualenv filelock || true) \
+    && rm -rf /root/.cache/virtualenv
 
 WORKDIR /app
 
