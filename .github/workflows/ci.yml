@@ -122,10 +122,6 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
           format: table
-      - if: failure()
-        run: >-
-          docker run --rm --entrypoint sh jap-app:ci -c
-          'find / -xdev \( -iname "msgpack*" -o -iname "setuptools*" -o -iname "urllib3*" \) 2>/dev/null | grep -v "^/proc" | head -50'
 
   compose:
     name: compose file is valid

@@ -32,8 +32,13 @@ WORKDIR /app
 # anything else, so the image a version tag produces is the same image tomorrow, and a
 # package that is republished under its own version cannot slip into a rebuild (IDEA-23).
 # After changing a dependency in pyproject.toml, run `make lock`.
+#
+# pip is removed once it has done that. Nothing in the running image installs anything, and
+# pip carries its own copies of msgpack, setuptools and urllib3 under pip/_vendor, which
+# trail the fixed releases and were the last HIGH findings in the CI image scan.
 COPY backend/pyproject.toml backend/requirements.lock ./
-RUN pip install --no-cache-dir --require-hashes -r requirements.lock
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock \
+    && pip uninstall -y pip
 
 COPY backend/ ./
 
