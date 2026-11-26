@@ -77,5 +77,8 @@ The tick at sign-up stores `TERMS_VERSION` (2026-11-22). Since v0.24.0 the page
 (`frontend/src/pages/LegalPage.tsx`) is a terms of service and a privacy notice covering GDPR
 Article 13 and the DPDP Act. It names every party data reaches, Razorpay included for those who
 pay for Plus (sent only an account id), makes each claim a test
-(`backend/tests/test_privacy_claims.py`), and shows a draft banner until the operator facts in
-`frontend/src/legal.ts` are filled in.
+(`backend/tests/test_privacy_claims.py`), and shows a draft banner whenever any operator fact in
+`frontend/src/legal.ts` is a placeholder. They are filled in: the controller is Aditya, in
+Rajasthan, India, reached at privacy@tutorial.monster (also the `security.txt` contact), under
+the law of India. The address is the state only until a full postal address goes in before Plus
+is sold.

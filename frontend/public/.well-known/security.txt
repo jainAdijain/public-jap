@@ -3,14 +3,14 @@
 # Vite copies frontend/public/ into the build, and Caddy serves it, so this ends up at
 # https://<host>/.well-known/security.txt with no route and no server behind it.
 #
-# The contact below is a placeholder while the notice is still a draft. It is filled in
-# from the same fact as everything else — OPERATOR.email in frontend/src/pages/LegalPage.tsx
-# — and backend/tests/test_privacy_claims.py fails if the notice stops being a draft while
-# this file still says TO BE FILLED IN, so the two cannot go live out of step.
+# The contact below is the same fact as everything else — OPERATOR.email in
+# frontend/src/legal.ts — and backend/tests/test_privacy_claims.py fails if the notice stops
+# being a draft while this file still carries the placeholder, so the two cannot go live out of
+# step. Change one and you change the other.
 #
 # Expires has to be a date in the future or this file is not valid. Move it on each year.
 
-Contact: mailto:TO BE FILLED IN
+Contact: mailto:privacy@tutorial.monster
 Expires: 2027-11-22T00:00:00.000Z
 Preferred-Languages: en
 

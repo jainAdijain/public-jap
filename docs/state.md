@@ -18,8 +18,13 @@ the scan starts green.
 
 Every session updates this before it stops: branch, done, half done, next step, blockers.
 
-Nothing is half done. Next is [launch-plan.md](intent/launch-plan.md) stage 1's owner steps:
-the operator facts and the AI-budget decision, both Aditya's.
+Branch `claude/project-thread-ffjekk`: the four operator facts are filled in
+(`frontend/src/legal.ts`: Aditya; Rajasthan, India; privacy@tutorial.monster; India), and
+`security.txt` carries the same contact, so the terms and notice no longer show the draft
+banner. `TERMS_VERSION` is deliberately not raised: the launch plan raises it once, after
+Aditya has read the final wording. Still open, all Aditya's: make privacy@tutorial.monster
+receive mail, a full postal address before Plus is sold, and the AI-budget decision
+([launch-plan.md](intent/launch-plan.md) stage 1).
 
 ## Never verified for real
 
