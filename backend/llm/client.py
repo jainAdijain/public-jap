@@ -84,7 +84,11 @@ async def chat(api_key: str, body: dict[str, Any], wait_s: float = 120.0) -> Cha
             message = resp.json().get("error", {}).get("message", resp.text)
         except ValueError:
             message = resp.text
-        if resp.status_code == 402:
+        # JAP-2: a spent key answers 403 "Key limit exceeded"; that is permanent, so it is
+        # OutOfCredits too. Other 403s (moderation, policy) stay retryable.
+        if resp.status_code == 402 or (
+            resp.status_code == 403 and "limit exceeded" in str(message).lower()
+        ):
             raise OutOfCredits(OUT_OF_CREDITS)
         raise ModelCallError(f"OpenRouter {resp.status_code}: {str(message)[:300]}")
     data = resp.json()
