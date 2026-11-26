@@ -83,7 +83,7 @@ frontend/src/
   App.tsx            shell, sidebar, version under the logo
   api/client.ts      all HTTP and every payload type
   pages/             one file per screen: Jobs, Profile, Preferences, Insights, Settings,
-                     SignIn, Privacy (LegalPage in PR 6), AccountSection
+                     SignIn, Legal (terms and privacy notice), AccountSection
   store.tsx + *Context.ts   state, no state library
 infra/               compose files, Dockerfiles, Caddyfile, env/live.env, postgres/init.sql,
                      scripts/ (deploy, server-setup, backup, restore, vm-sync, worktree,

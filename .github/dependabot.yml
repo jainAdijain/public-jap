@@ -1,0 +1,42 @@
+# Dependency updates, so the pins in backend/requirements.lock and the image base are
+# deliberate choices and not whatever was newest the day someone last rebuilt (IDEA-23).
+#
+# Weekly, grouped, and capped: the point is a small number of reviewable pull requests,
+# not a notification every time a transitive dependency ships a patch. A security update
+# is not grouped and not capped — those come through on their own.
+#
+# pip updates pyproject.toml's ranges. The lock is NOT updated by Dependabot: it is
+# generated, cross-platform and hash-pinned, so run `make lock` when taking a pip update
+# and push that in the same pull request. CI installs from the lock, so forgetting shows
+# up as CI running the old version, not as a silent drift.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      ui:
+        patterns: ["*"]
+
+  # The Playwright base image carries Chromium and its system libraries, which is where
+  # most of what Trivy finds lives.
+  - package-ecosystem: docker
+    directory: /infra/docker
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

@@ -44,10 +44,17 @@ def _check_out(row: FormCheck) -> FormCheckOut:
 async def ops(session: Session) -> Ops:
     files = backup.backups()
     last = files[0] if files else None
+    encrypted, detail = backup.age_ready()
     return Ops(
-        last_backup=BackupOut(file=last.path.name, at=last.at, bytes=last.size) if last else None,
+        last_backup=BackupOut(
+            file=last.path.name, at=last.at, bytes=last.size, encrypted=last.encrypted
+        )
+        if last
+        else None,
         backups=len(files),
         backup_today=backup.has_today(),
+        backups_encrypted=encrypted,
+        backups_encryption=detail,
         form_checks=[_check_out(r) for r in await form_check.latest(session)],
     )
 

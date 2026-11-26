@@ -7,7 +7,7 @@ import { ago, errorText, plural } from './format'
 import InsightsPage from './pages/InsightsPage'
 import JobsPage from './pages/JobsPage'
 import PreferencesPage from './pages/PreferencesPage'
-import PrivacyNotice from './pages/PrivacyPage'
+import Legal from './pages/LegalPage'
 import ProfilePage from './pages/ProfilePage'
 import SettingsPage from './pages/SettingsPage'
 import SignInPage, { TermsTick } from './pages/SignInPage'
@@ -83,7 +83,7 @@ function Shell() {
         <div className="logo">
           <span className="logo-mark">JAP</span>
           <span className="logo-name">
-            Job Application Pipeline<small>Version 0.23.0</small>
+            Job Application Pipeline<small>Version 0.24.0</small>
           </span>
           {health?.env && health.env !== 'prod' && (
             <span className={`env-badge env-${health.env}`} title={`This is the ${health.env} copy of JAP, not prod`}>
@@ -147,7 +147,7 @@ function TermsGate({ user, version, onAccepted, onSignOut }: { user: User; versi
     return (
       <main className="auth">
         <div className="auth-card wide">
-          <PrivacyNotice />
+          <Legal />
           <button type="button" className="btn-primary auth-submit" onClick={() => setReading(false)}>
             Back
           </button>

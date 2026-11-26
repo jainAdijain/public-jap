@@ -73,8 +73,9 @@ the row that owns them. Files from before tenancy keep their old paths.
 
 ## The notice
 
-The tick at sign-up stores `TERMS_VERSION`. On `main` the notice is
-`frontend/src/pages/PrivacyPage.tsx` and says it is a draft. **PR 6** replaces it with a terms
-of service and a privacy notice covering GDPR Article 13 and the DPDP Act, names Razorpay,
-makes each claim a test (`backend/tests/test_privacy_claims.py`), and shows a draft banner
-until the operator facts in `frontend/src/legal.ts` are filled in.
+The tick at sign-up stores `TERMS_VERSION` (2026-11-22). Since v0.24.0 the page
+(`frontend/src/pages/LegalPage.tsx`) is a terms of service and a privacy notice covering GDPR
+Article 13 and the DPDP Act. It names every party data reaches, Razorpay included for those who
+pay for Plus (sent only an account id), makes each claim a test
+(`backend/tests/test_privacy_claims.py`), and shows a draft banner until the operator facts in
+`frontend/src/legal.ts` are filled in.

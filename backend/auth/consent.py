@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import AppUser, Profile
 
-TERMS_VERSION = "2026-11-17"
+TERMS_VERSION = "2026-11-22"
 
 # What the API says when an agreement is missing. Each is a sentence for the user, and the
 # screen that shows it offers the tick that fixes it.

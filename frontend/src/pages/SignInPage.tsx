@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { ApiError, auth, type AuthState, type User } from '../api/client'
 import { errorText } from '../format'
 import { googleOutcome, takeToken } from '../query'
-import PrivacyNotice from './PrivacyPage'
+import Legal from './LegalPage'
 
 // The screen shown before JAP opens (PRD S1 to S6, S10): create an account, sign in, the
 // two-step code, Forgot password and the reset link from the email. Anyone can create an
@@ -225,7 +225,7 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
   if (mode === 'notice') {
     return (
       <Card title="" wide>
-        <PrivacyNotice />
+        <Legal />
         <button type="button" className="btn-primary auth-submit" onClick={() => setMode('create')}>
           Back to creating your account
         </button>

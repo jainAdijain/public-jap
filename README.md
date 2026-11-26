@@ -1,6 +1,6 @@
 # JAP: Job Application Pipeline
 
-**Version 0.22.0 (applying at scale: side by side, paced, and codes for everyone), 21 Nov 2026.**
+**Version 0.24.0 (ready to be shown to strangers: encrypted backups, terms and a privacy notice, a load test), 26 Nov 2026.**
 
 JAP watches the public job boards of the companies you pick (Greenhouse, Lever and Ashby),
 lists the jobs that match your profile, and prepares or submits applications for you to review.
@@ -500,9 +500,16 @@ nothing; the only data that leaves is redacted errors sent to Sentry, and only w
 - **Sentry** (optional, free Developer plan): create a project at sentry.io, put its DSN in
   `SENTRY_DSN` and restart. Only errors are sent, with no request bodies, cookies, headers or
   local variables, and every message scrubbed.
-- **Uptime from outside** (O7): once prod is public, add a free uptime check (a Cloudflare
+- **Uptime from outside** (O7): once live is public, add a free uptime check (a Cloudflare
   health check, or a free monitor such as UptimeRobot) on `https://jap.tutorial.monster/api/health`
   every 5 minutes, emailing you when it fails. It works even when the Mac is asleep.
+  `/api/health` is open, because a monitor cannot sign in, but **what it says depends on who
+  asks** (IDEA-23): a stranger — anything arriving through the tunnel — gets `{"ok": true}`
+  and nothing more, which is all a monitor needs. Which environment this is and the state of
+  the database, Inngest and Ollama go only to a signed-in admin and to callers inside the
+  stack (loopback, no proxy headers), which is how `wait-for-health.sh` and Docker's own
+  health checks still see everything. Telling the internet that Ollama is down is telling it
+  what to try next.
 
 Part B comes after sign-in step 2: the user on every log line, Health for the admin only,
 first-party usage counts (`usage_event`), each user's own Insights, and per-user counts and
@@ -688,6 +695,27 @@ resumes and answers now. `make backup-pull` costs nothing, runs from the Mac, an
 copy on hardware you own. Run it after anything important, and restore one occasionally: a
 backup nobody has ever restored is a hope, not a backup.
 
+**Encrypted, to a key the server does not have** (IDEA-11). Set `JAP_BACKUP_AGE_RECIPIENT`
+on live to an `age` public key and every dump is encrypted as it is written, landing as
+`jap-….sql.gz.age`. That one setting covers all three rows at once: the daily file, the
+disk snapshot that contains it, and the copy `backup-pull` leaves on the Mac are all
+ciphertext. The server holds only the public key, so taking the server does not get anyone
+the data, and the server cannot read its own backups either.
+
+```bash
+age-keygen -o ~/.config/jap/backup-key.txt     # on the Mac, once. Keep this file safe.
+# Put the "public key: age1..." line it prints into JAP_BACKUP_AGE_RECIPIENT in .env.live.
+make restore ENV=live FILE=data-live/backups/jap-….sql.gz.age KEY=~/.config/jap/backup-key.txt
+```
+
+Lose `backup-key.txt` and every encrypted backup is gone for good, so it belongs wherever
+your other irreplaceable keys live, not only on the laptop. Settings > Status says whether
+encryption is actually on, because a recipient set with no `age` in the image would
+otherwise show up only as a failed backup. Full-disk encryption on the server was
+considered and **not** done: the key would have to sit on a machine that boots unattended,
+so it protects against a stolen disk and very little else, while this protects against the
+case that can actually happen — the hosting account going away with every copy inside it.
+
 ### What is on the server and what is not
 
 Adminer is not in the live stack, so there is no database browser on the public machine. The
@@ -700,6 +728,95 @@ Caddy sends a content security policy with every page, which allows scripts from
 and Cloudflare Turnstile and nothing else, so adding anything to the UI that loads from a new
 host means adding it to `infra/caddy/Caddyfile` too. The sign-up page is the one to check
 afterwards, because Turnstile is the only third-party script JAP loads.
+
+## Before going public
+
+JAP accepts sign-ups from anyone, holds their resumes and applies for jobs in their name.
+This is what has to be true before the address is given to strangers (IDEA-23), and what
+is already true today.
+
+### How big it goes, and what gives first
+
+`make load-test` builds a scratch database of 150 accounts and a few hundred shared
+companies, runs the match every search ends with for every account, hits the signed-in
+pages twenty at a time, and prints a verdict against budgets fixed in advance. It calls no
+model, fetches no board and submits nothing, so it costs nothing to run.
+
+At 150 accounts sending 20 applications a month — about 100 a day — **the machine is not
+the problem and the money is**:
+
+| | Measured | Budget |
+| --- | --- | --- |
+| One account's match over 12,000 listings | 3 ms | — |
+| All 150 accounts' matches, one after another | 0.5 s | an hour |
+| A signed-in page, 95th percentile, 20 at once | ~370 ms | 500 ms |
+| Database connections at full stretch | 30 | 80 of 100 |
+| Browser-hours of applying a day | 3.3 | 96 (4 browsers) |
+| Disk held by screenshots and traces | ~25 GB | — |
+| **AI spend if every account uses its cap** | **$155 a month** | **$20** |
+
+So the first thing to break is `JAP_TOTAL_COST_CAP_USD`: 150 accounts on the free $1 each,
+plus the $5 the service spends reading shared job descriptions, is $155 a month against a
+$20 stop. Nobody is slow — everybody stops. Before opening sign-up, decide which of these
+it is: raise the total cap and pay the bill, lower the free per-account allowance, hold
+sign-up at a number the cap fits (about 15 accounts at today's settings), or make paid
+plans the way past it. The disk figure is the other one worth a look: 25 GB of screenshots
+and traces at the current retention is most of a small server's disk.
+
+Two numbers in that table are assumptions, not measurements, and are marked as such in the
+output: that one application holds a browser for about 120 seconds, which `make capacity`
+answers from applications that really happened, and that embedding keeps up on the
+server's CPU, which `make ollama-check` and a real run answer.
+
+### The checklist
+
+- [ ] Fill in `OPERATOR` in `frontend/src/pages/LegalPage.tsx` — name, postal address,
+      contact address, governing law. The draft banner is computed from those four, so
+      filling them in is what makes the terms and the notice stop calling themselves a
+      draft, and `make test` then insists `security.txt` carries the real address too.
+- [ ] Read the terms and the privacy notice as a legal statement in your own name, not as
+      a description of the code. The code half is kept honest by
+      `backend/tests/test_privacy_claims.py`; the wording is yours.
+- [ ] Raise `TERMS_VERSION` in `backend/auth/consent.py` **once**, with the final wording,
+      so the handful of accounts that agreed to the draft are asked again at launch and
+      not twice in a week.
+- [ ] Settle the AI spend question above.
+- [ ] Settle IDEA-20: whether Automatic mode is offered to the public at all.
+- [ ] `JAP_BACKUP_AGE_RECIPIENT` set on live, and one encrypted backup actually restored.
+- [ ] An uptime check on `https://<host>/api/health` every five minutes (O7). A stranger
+      gets `{"ok": true}` and nothing else from it, which is all a monitor needs; the
+      service-by-service detail goes only to the admin and to callers inside the stack.
+- [ ] Decide what the first week's limit is, and who it is given to.
+
+### Letting people in slowly
+
+Sign-up can be paused from Settings > Accounts, which is the brake between each step:
+the trusted reviewer first, then about ten people who will tell you when something is
+wrong, then open. Stop at each step if applications are failing, if the AI spend is
+tracking above what the cap allows, if a job site starts refusing submissions
+(Settings > Status shows refusals and code challenges per site), or if anything in
+`make errors` repeats.
+
+### If something leaks
+
+A breach is the one thing JAP cannot fix after the fact, so the order is decided now
+rather than at the time.
+
+1. **Stop the bleeding.** Pause sign-up, `JAP_SUBMIT_ENABLED=false`, and if the server
+   itself is suspect, `make stop ENV=live` on the server — the tunnel is part of the stack,
+   so stopping it takes the site off the internet.
+2. **Keep the evidence.** Take a backup before changing anything; `make errors` and the
+   `log_event` rows are scrubbed but still show what ran when.
+3. **Work out whose data and what.** The private tables are the list in
+   `database/tenant.py`; `llm_call` and `log_event` carry no personal content by design.
+4. **Tell people.** Under the DPDP Act the Data Protection Board and the affected users;
+   under the GDPR the supervisory authority within 72 hours of becoming aware, and the
+   users themselves when the risk to them is high. Say what happened, what was taken, what
+   has been done, and what they should do.
+5. **End every session** (`make sign-out-all`), rotate the OpenRouter key, the mailbox
+   password, `JAP_SECRET_KEY` and the tunnel token, and write up what let it happen.
+
+Someone outside reports problems through `/.well-known/security.txt`.
 
 ## Make targets
 
@@ -722,6 +839,8 @@ afterwards, because Turnstile is the only third-party script JAP loads.
 | `make close-unfollowed` | List open postings of companies you no longer follow; `APPLY=1` closes them (back up first) |
 | `make code-mail-check` | Log in to the mailbox over IMAP and count the Greenhouse emails it holds (security codes, PRD A5) |
 | `make qa` | Dedup QA set: place the 106 labelled job pairs and print the accuracy |
+| `make load-test` | Does one server hold 150 accounts? Builds a scratch database, measures matching, the pages and the ceilings, and prints a verdict (`USERS=` to change the size). Calls no model and submits nothing |
+| `make lock` | Repin `backend/requirements.lock` from `pyproject.toml`, after changing a dependency |
 | `make form-check` | Read one live form per ATS now (the weekly form test); nothing is submitted |
 | `make set-password EMAIL=...` | Set a new password for an account from the machine (asks twice) |
 | `make two-step-off EMAIL=...` | Turn two-step sign-in off for an account (phone and recovery codes lost) |
@@ -758,6 +877,7 @@ AGENTS.md           the rules for coding agents; CLAUDE.md, .devin/, .claude/, .
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.24.0 | 26 Nov 2026 | Ready to be shown to strangers (IDEA-11, IDEA-23, part). **Encrypted backups**: with `JAP_BACKUP_AGE_RECIPIENT` set, `pg_dump` goes through `age` on its way to disk and the server holds only the public key, so neither it nor anyone who takes the hosting account can read its own backups. **Terms of service and a privacy notice** carrying what Article 13 and the DPDP Act ask for, including Razorpay for those who pay for Plus; the page calls itself a draft until the four operator facts in `frontend/src/legal.ts` are filled in, and every claim in it is a test (`test_privacy_claims.py`). Everyone is asked to agree again (`TERMS_VERSION` 2026-11-22). **`make load-test`** builds 150 accounts and reports against fixed budgets: the first ceiling is the AI money, not the machine. **Security**: `/api/health` tells a stranger only whether it is up; dependencies pinned and hashed in `requirements.lock` (`make lock`); pip-audit, npm audit, gitleaks and Trivy in CI, Dependabot behind them; `security.txt`. |
 | 0.23.0 | 22 Nov 2026 | A plan that can be paid for (IDEA-21). **Plus** is the free plan's three numbers made larger — 10 companies, 10 applications a day — and every one of them still comes from `limits_for`, so `api/boards.py`, `pipeline/apply/flow.py` and `llm/spend.py` never learn that a subscription exists. The order it resolves in is the whole policy: a number the admin set for that one account, else the plan its subscription grants, else free; and on top of either, what the owner chose for themselves, which can only lower a figure. Plus's **AI allowance is a guard, not the product**: it sits far above what 10 applications a day can spend, because an account that paid and was stopped mid-month for AI would be a support ticket and not a limit. **Checkout is a redirect** to a page Razorpay hosts (`0021_billing`), so no card detail reaches JAP, no payment script runs on its pages and the Content-Security-Policy is untouched; nothing personal is sent either, since the subscription carries only the account's id and the payer types their own details there. **The webhook** is the one route a stranger can reach, so it is applied exactly once (`UNIQUE (provider, event_id)`, inserted before it acts, in the same transaction), never backwards (an event older than the state held is recorded and dropped), and as the service, because nobody is signed in and the row belongs to someone; anything unsigned is Not Found. **Nobody is cut off on the day a payment fails**: the plan runs to the end of the period paid for and `JAP_BILLING_GRACE_DAYS` past it, since the provider is still retrying and an Indian e-mandate gives the payer a day's notice before a charge is even attempted. Cancelling stops the renewal and leaves the rest of the period alone, and deleting an account cancels the mandate first so nothing goes on charging someone who has no account. `subscription` is private data like everything else, so export and erasure already carry it. Selling is **off** (`JAP_BILLING_ENABLED=false`) until a provider is configured, and a merchant of record for outside India is still to be chosen |
 | 0.22.0 | 21 Nov 2026 | Applying at scale (IDEA-15 to IDEA-19). **Side by side** (`apply-listing`): the one slot for the whole service becomes one per account under `JAP_APPLY_BROWSERS`, so people apply at the same time while their own applications still go one after another. A browser is what the limit counts, because each holds a worker. **A code for everyone** (`0019_security_code`): Greenhouse emails an 8-character code and holds the application until it is typed in, and only the admin's mailbox could be read, so every other account was told to apply by hand. Now a code is matched by **who it was addressed to** — each account gets `jap+<token>@…` and forwards to it with one mail filter — and the recipient is looked for in every header a forward might keep. Where a provider drops it, an inbound-email service can post the message to `/api/inbound/email` under `JAP_INBOUND_SECRET`, the one route no browser session reaches. And the person can always type the code in on the job itself, which is the only route on a JAP with no mailbox. The code lives on the application row for the minutes the form is open and is cleared by the same statement that marks it Applied. This ships **with** the concurrency and not after it: one slot at a time was what had been keeping the shared mailbox safe by accident. **Pacing** (`0020_pacing`): a job site sees the service, not one user, so beside each account's cap and 30-second gap there is a gap per ATS and a ceiling for everyone together, both read through functions that return a number and never a row; and Pause sending stops one account without turning it off or taking back its consent. **What each site did** with every submission — confirmed, refused, asked for a code — is recorded per ATS, because those rates are what say whether JAP is being read as a bot. **How long it takes** (`make capacity`, Settings): the Inngest middleware was already recording a duration for every step, so capacity is measured from what is there rather than guessed; the per-application total is the honest figure, since a submit still waiting on the cap returns before it opens a browser. **Your own AI key** (`0018_user_secret`, IDEA-19): paste an OpenRouter key and your work is billed to it and your JAP allowance left alone. Sealed with AES-GCM under `JAP_SECRET_KEY`, bound to the account so a row copied elsewhere will not open, and only its last four characters ever come back. `billed_to='byok'` is left out of the allowance, the shared budget and the total. **An outbound address** (IDEA-18) is the seam only: `JAP_APPLY_PROXY` is empty, so applications still leave from the server's own address until the per-site rates say otherwise |
 | 0.21.0 | 20 Nov 2026 | live runs on a server instead of the Mac (PRD H1 to H8; IDEA-10 to IDEA-14). One Linux machine is up whether or not the Mac is, and nothing about local changes. **Two halves** (H2): the app image runs twice, `JAP_ROLE` apart — `app` answers `/api` and does not mount `/api/inngest` at all, `worker` runs the Inngest functions and the Playwright browser and is published nowhere, so the endpoint that runs JAP's functions is absent from the process a browser can reach rather than merely guarded. Both exist on local too, so dev reproduces live, and Phase 4 adds workers by raising a replica count. **Releases**: live builds nothing. A `v*` tag makes GitHub Actions push `public-jap-app` and `-ui` to GHCR, and `make deploy TAG=vX.Y.Z` on the server checks that tag out and pulls them; the image tag comes from the checked-out tag, so the compose files and what runs cannot drift apart, and rolling back is the same command with the tag before. The images are `linux/amd64` and starting the release stack refuses on a Mac. **The machine**: `infra/scripts/server-setup.sh` prepares a fresh Debian — Docker, a `jap` user, a firewall open only to SSH, unattended security updates, and swap, because an out-of-memory kill between pressing Submit and reading the answer is the one failure JAP cannot resolve by itself. Ollama becomes a container (the server has no GPU to use) and cloudflared joins the stack, reaching Caddy over the Docker network, so the server publishes no inbound port at all and `infra/tunnel/` is gone. **Keeping less** (IDEA-14): traces 30 days and screenshots 180, swept hourly by health-watch — files only, because an Applied application is frozen (A2) and both screens already ask the filesystem. **Hardening** (IDEA-13): a write is refused when `Sec-Fetch-Site` says it began on another site, not only when `Origin` does; Caddy sends a content security policy, HSTS and the rest; and the board reader refuses any address that is not an ATS on every hop, so a redirect cannot aim JAP at the server's metadata service. **Backups**: `make backup-pull` copies the server's newest dump to the Mac, the only copy that survives losing the hosting account |

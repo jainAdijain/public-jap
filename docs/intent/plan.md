@@ -64,7 +64,7 @@ Exit test: to be written with the requirements.
 ### Phase 6: Public launch (open)
 Goal: strangers can sign up, and 1.0.0 is tagged. The steps, with Aditya's decisions marked, are in
 [launch-plan.md](launch-plan.md).
-In PR 6 (`launch`, v0.24.0): encrypted backups, the real terms and privacy notice, load test,
+Built in v0.24.0, PR 6: encrypted backups, the real terms and privacy notice, load test,
 supply-chain checks.
 Delivers: DATA-4, OPS-5
 Exit test: [launch-plan.md](launch-plan.md) stage 6 done, DATA-4 and OPS-5 Proved, OPS-4 run for
