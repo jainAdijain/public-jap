@@ -3,8 +3,8 @@ companies followed, applications a day. limits_for() is the only place that deci
 rest of the code — api/boards.py, pipeline/apply/flow.py, llm/spend.py — never learns that a
 subscription exists.
 
-`docs/` is absent from this checkout, so paid plans have no PRD id yet; IDEA-21 is the entry
-in IDEAS.md. Replace the citation when the PRD section exists.
+The PRD is absent from this checkout, so paid plans have no PRD id yet; IDEA-21 is the entry
+in docs/ideas.md. Replace the citation when the PRD section exists.
 
 Two plans, free and plus, with their numbers in .env so they can be tuned without a release.
 An account is on plus while it holds a subscription that grants it (database/models.py,

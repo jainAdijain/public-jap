@@ -4,23 +4,83 @@ JAP (Job Application Pipeline) watches the public job boards of companies you fo
 (Greenhouse, Lever, Ashby), lists the jobs that match your profile, and prepares or submits
 applications for you to review.
 
-`README.md` is the long-form description of every behaviour and is kept current — read the
-section that covers whatever you are changing before you change it. PRD ids (`A5`, `S6`, `H4`,
-`O12`, `U8`) are used all over the code and in commit messages.
+**Start with [`docs/`](docs/README.md).** It is the tracked, public description of the
+project that every harness reads, in three parts that must always agree: **intent** (goal,
+requirements, the phase plan, decisions), **structure** (architecture, operations) and
+**behaviour** (what each part does, with the tests that prove it). `docs/state.md` says where the
+project is now. `docs/README.md` says what to read in which order.
 
-The PRD is the source of truth, with the build plan and engineering design doc under it. They
-live in `docs/` and are **not in git**: this repo is public and they carry personal data.
+`README.md` is the long-form user and operator guide (every screen, setting and `make`
+target) and is kept current too — read the section that covers whatever you are changing
+before you change it. PRD ids (`A5`, `S6`, `H4`, `O12`, `U8`) are used all over the code and in
+commit messages; requirement ids (`AUTH-3`, `TEN-2`, `BILL-1`) are the public ones, listed in
+`docs/intent/requirements.md`.
 
-- List `docs/` first rather than reaching for a fixed filename — the names and the format
-  depend on how the documents were last exported. Today it holds PDF exports of the PRD, the
-  build plan, the engineering design doc, the hosting plan and the ideas list, with the text of
-  each pulled out alongside in `docs/text/`. Read the text, and open the PDF when a diagram or
-  the shape of a table matters.
-- The PDF is the document; `docs/text/` is a `pypdf` extraction of it, so diagrams are gone and
+## How work moves
+
+These rules hold for every harness and every session (decision 26).
+
+### Start of a session
+
+1. Read this file, `docs/README.md`, then `docs/state.md`, its "In flight" handoff note first.
+2. Find the open phase in `docs/intent/plan.md` and the requirement ids it delivers.
+3. Read `docs/bugs.md` and `docs/ideas.md` before reporting anything as new.
+4. Read the behaviour page and the structure section for the area you are about to change.
+
+### Phase by phase
+
+- **One phase is open at a time** (`### Phase N: Name (planned|open|done)` in `plan.md`, with
+  Goal, Delivers and Exit test). Work outside the open phase needs Aditya's say-so.
+- A phase opens when the one before it is done, or when Aditya says so. It closes when its exit
+  test passes: every requirement it delivers is Proved in `docs/behaviour/traceability.md` or an
+  accepted gap, `state.md` is updated, and Aditya agrees.
+- An idea that comes up mid-phase goes to `docs/ideas.md` (see Ideas). It joins a phase only
+  when Aditya moves it into `plan.md`.
+- A phase may be split (5a, 5b) when part of it waits on evidence.
+
+### Definition of done (every pull request)
+
+- [ ] The code does what the requirement says, and cites its id (requirement, PRD, `JAP-N` or
+      `IDEA-N`) in the module docstring or the commit
+- [ ] A test proves it, named as a sentence, and its row in `traceability.md` points at it. A
+      new requirement gets a row in `requirements.md`, `traceability.md` and a phase in
+      `plan.md` in the same PR
+- [ ] The behaviour page, and the structure page if structure moved, say what the code now does
+- [ ] A row in `docs/intent/decisions.md` if the PR chose between real alternatives
+- [ ] `docs/state.md` says what the PR built, fixed or found; `docs/bugs.md` if a defect was
+      found or fixed; `docs/intent/launch-plan.md` ticked if a launch step moved
+- [ ] `make test` (or `make test-host`) green, which includes `infra/scripts/check_docs.py`
+- [ ] The PR states its version bump (patch, minor, major), one release-notes line, and what
+      was not verified
+
+A pure refactor or a test-only change with no change in behaviour may skip the doc edits; the PR
+says "Docs: no change" and why. If you find a page that disagrees with the code, fix whichever
+one is wrong in the same PR. `docs/` is public: no secrets, no machine addresses, no personal
+data, and nothing copied from the private documents below.
+
+### Handoff (end of a session)
+
+Before stopping, update "In flight" in `docs/state.md`: the branch, what is done, what is half
+done, the next step and anything that blocks it. The next harness starts from that note.
+
+## The private product documents
+
+The PRD is the product's source of truth, with the build plan and engineering design doc under
+it. They live in `docs/intent/sources/` on Aditya's machine (`docs/private/` until they are
+moved) and are **not in git**: this repo is public and they carry personal data. (`.gitignore`
+also ignores any PDF and `docs/text/` anywhere under `docs/`, for copies that still sit at its
+top.)
+
+- List `docs/intent/sources/` (or `docs/private/`) first rather than reaching for a fixed
+  filename — the names and the format depend on how the documents were last exported. Today it
+  holds PDF exports of the PRD, the build plan, the engineering design doc, the hosting plan and
+  the ideas list, with the text of each pulled out alongside in `text/`. Read the text, and open
+  the PDF when a diagram or the shape of a table matters.
+- The PDF is the document; `text/` is a `pypdf` extraction of it, so diagrams are gone and
   tables arrive flattened to one cell per line. Rebuild it after a fresh export:
 
   ```bash
-  cd docs && uv run --with pypdf python -c '
+  cd docs/intent/sources && uv run --with pypdf python -c '
   import pathlib, re, pypdf
   for p in pathlib.Path(".").glob("*.pdf"):
       t = "\n".join(pg.extract_text() or "" for pg in pypdf.PdfReader(str(p)).pages)
@@ -33,10 +93,13 @@ live in `docs/` and are **not in git**: this repo is public and they carry perso
 - The documents carry their own versions and they drift apart. Check the line under each title
   before you trust it: the design doc and the build plan each say which PRD version they follow,
   and the design doc also names the code version it describes. Where they disagree the PRD wins,
-  so say that the older document is behind rather than quietly following it.
-- If `docs/` is empty or absent you are on a machine without it. Work from `README.md`, and say
-  that the PRD was unavailable rather than guessing at the meaning of a PRD id you cannot read.
-- Never copy the contents of `docs/` into a tracked file, a commit message or a PR body.
+  so say that the older document is behind rather than quietly following it. Where the PRD and
+  `docs/` disagree, record it under "Drift between documents" in `docs/state.md`.
+- If `docs/intent/sources/` and `docs/private/` are empty or absent you are on a machine without
+  them. Work from `docs/` and `README.md`, and say that the PRD was unavailable rather than
+  guessing at the meaning of a PRD id you cannot read.
+- Never copy the private documents into a tracked file (including `docs/**/*.md`), a
+  commit message or a PR body.
 
 ## Harnesses
 
@@ -54,9 +117,13 @@ other files only make a harness read this one, or enforce what it says.
 - `infra/scripts/agent-guard.py` is the hook Devin and Claude Code run before a tool call. It
   refuses reading a secrets file, printing rendered compose config, and anything aimed at the
   live stack. Change a rule there and add a case to its `CASES`, not in one harness's config.
-- `infra/scripts/check-tracked.sh` refuses a commit that carries a secrets file, `docs/`,
+- `infra/scripts/check-tracked.sh` refuses a commit that carries a secrets file, anything in
+  `docs/` but a Markdown page (`docs/intent/sources/`, `docs/private/`, `docs/text/`, a PDF),
   `data/`, a `*.local.*` file or something shaped like an OpenRouter key. `make hooks` turns it
-  on for a clone; CI runs it regardless. `make test-agents` runs both self-checks.
+  on for a clone; CI runs it regardless.
+- `infra/scripts/check_docs.py` fails when `docs/` and the code come apart: a broken link, an
+  unindexed page, a requirement with no proving test or stated gap, a named test that does not
+  exist, two open phases. `make test-agents` runs all three checks.
 - Anything an agent needs to do is a `make` target, not a skill or command that only one
   harness has. A rule goes in this file, never in a harness's own rules folder.
 - Personal overrides go in `AGENTS.local.md`, `.devin/config.local.json` or
@@ -100,6 +167,9 @@ seed/               companies.yaml, skills.yaml
 backend/            main.py, config.py, api/, schemas/, database/ (+migrations/), sources/,
                     pipeline/, llm/, functions/ (Inngest), observability/, auth/, tests/
 frontend/           src/pages, src/components, src/api/client.ts
+docs/               tracked: the project docs every harness reads (start at docs/README.md):
+                    intent/, structure/, behaviour/, state.md, glossary.md, ideas.md, bugs.md;
+                    docs/intent/sources/ is gitignored: the PRD and the other product documents
 data/               gitignored: resumes, screenshots, cover letters, traces, backups
 ```
 
@@ -112,7 +182,7 @@ use the host path in "Without the Docker stack" below instead of starting one.
 ```
 make start                  # build, start, wait for /api/health, migrate, check Ollama
 make test                   # the full check: test-app + test-ui + test-agents
-make test-agents            # agent-guard.py --self-test && check-tracked.sh (runs on the host)
+make test-agents            # agent-guard.py --self-test, check-tracked.sh, check_docs.py
 make test-app               # ruff check . && ruff format --check . && mypy . && pytest -q
 make test-ui                # npm run lint && npm run build
 make logs / make ps
@@ -162,8 +232,9 @@ make test-host              # the same checks as make test, run on this machine
 - Database tests **fail** rather than skip when Postgres is missing (`JAP_REQUIRE_DB=1`), so a
   green run means they ran. One skip is expected: the `pg_dump` test, when no matching client
   is installed.
-- There is no Ollama, no `docs/` and no running app. Say so when a task needs one of them
-  (checking a screen by hand, reading a PRD id) instead of guessing.
+- There is no Ollama, no `docs/intent/sources/` and no running app (`docs/**/*.md` is there:
+  it is tracked). Say so when a task needs one of them (checking a screen by hand, reading a
+  PRD id) instead of guessing.
 - Do not run `make start` in a second checkout on the Mac to get a stack for tests: without its
   own `.env` it takes the project name and ports of the stack that is already running.
 
@@ -218,7 +289,9 @@ still passes locally.
   submit to a real job site.
 - **Auth:** every `/api` route is behind a session except `/api/health`, `/api/auth/*`,
   `/api/inbound/email` and `/api/webhooks/*`. New routers are registered in `main.py` inside
-  the `dependencies=[Depends(current_user)]` loop. `/api/inngest` answers only direct calls
+  the `dependencies=[Depends(agreed_user)]` loop (signed in and agreed to the current notice);
+  only `account` (export and delete) takes `current_user`, and admin routers take
+  `admin_user`. `/api/inngest` answers only direct calls
   from inside Docker. `/api/inbound/email` takes a security code from a mail service that
   cannot sign in, so it carries `JAP_INBOUND_SECRET` instead and is off (404) without one.
   `/api/webhooks/{provider}` is posted to by a payment provider's server, which cannot sign
@@ -295,7 +368,7 @@ still passes locally.
 
 ## Bugs and issues
 
-`BUGS.md` is the numbered list of known defects, in one serial order that is never renumbered
+`docs/bugs.md` is the numbered list of known defects, in one serial order that is never renumbered
 and never reused. Read it at the start of a session, before reporting anything as new.
 
 Aditya says whether something is a **bug** or an **issue**; you give it the next free `JAP-N`
@@ -309,19 +382,24 @@ JAP-2)` — and close the entry in the same commit that fixes it.
 
 ## Ideas
 
-`IDEAS.md` is the numbered list of what would make public-jap better and is not being built
-yet, in one serial order like `BUGS.md`. Read it before proposing something as new.
+`docs/ideas.md` is the numbered list of what would make public-jap better and is not being
+built yet, in one serial order like `docs/bugs.md`. Read it before proposing something as new.
 
 When Aditya says **"move to idea"** (or "move to ideas") about something in the session, add it
-to `IDEAS.md` with the next free `IDEA-N` (on a branch that shares the queue with other agents,
+to `docs/ideas.md` with the next free `IDEA-N` (on a branch that shares the queue with other agents,
 describe it in the PR instead, see Several agents at once): a row in the table and a section
 saying what it is, why it came up, what is already known about how to build it, and anything
 still to decide. Do not start building it. An idea becomes work only when Aditya says so.
 
-This list is tracked and public. The private ideas document in `docs/` is a separate thing and
-is never copied into it.
+This list is tracked and public. The private ideas document in `docs/intent/sources/` is a
+separate thing and is never copied into it.
 
 ## Releases
+
+Decision 25 sets where this is going: two environments, dev (local) and prod (live); the version
+comes from git tags only and no file holds it; 1.0.0 is the first public launch. The bump rules
+are in `docs/structure/operations.md` (Releasing and deploying). **That is not built yet**
+(OPS-5, a gap in `traceability.md`). Until it is, the rule below stands.
 
 A user-visible change gets a version bump in four places, kept in step (not on a branch that
 shares the queue with other agents, see Several agents at once):

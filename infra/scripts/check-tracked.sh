@@ -1,7 +1,9 @@
 #!/usr/bin/env sh
 # Fails if git holds, or is about to hold, something this public repo must never carry:
-# a secrets file, anything from docs/ (the PRD and design doc carry personal data), runtime
-# data, local notes, or a line that looks like an OpenRouter key.
+# a secrets file, a private product document (docs/intent/sources/, docs/private/, docs/text/, a PDF, or anything in
+# docs/ that is not a Markdown page: the PRD and design doc carry personal data), runtime data,
+# local notes, or a line that looks like an OpenRouter key. docs/*.md is the public project
+# documentation and is tracked on purpose.
 #
 # .gitignore already keeps these out; this catches `git add -f` and a key pasted into a
 # tracked file, whichever agent or person did it.
@@ -27,7 +29,9 @@ classify() {
     case "$f" in
       .env.example | data/.gitkeep) ;;
       .env | .env.* | */.env | */.env.*) echo "secrets file: $f" ;;
-      docs/*) echo "product document (personal data): $f" ;;
+      docs/intent/sources/* | docs/private/* | docs/text/*) echo "product document (personal data): $f" ;;
+      docs/*.md | docs/*/*.md) ;;
+      docs/*) echo "not a Markdown page, so possibly a product document: $f" ;;
       data/* | data-live/*) echo "runtime data: $f" ;;
       *.local.md | *.local.json) echo "local-only file: $f" ;;
     esac

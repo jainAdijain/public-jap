@@ -11,6 +11,12 @@ The [JAP PRD](https://claude.ai/artifact/WL9RYjsPDCTmknMLRqzKRj) is the single s
 the [build plan](https://claude.ai/artifact/1TrqC2jt8SuPVbULa8i6eU) and the
 [engineering design doc](https://claude.ai/artifact/XsWXaEvBdEsFf97GguqtAy) follow it.
 
+**[`docs/`](docs/README.md) is the project's documentation for people and coding agents
+alike**: the goal, the current state, the architecture, how each part behaves, operations,
+the decisions taken and the [launch plan](docs/intent/launch-plan.md). It is kept in step with the
+code in every pull request. This README is the long-form guide to every screen, setting and
+`make` target.
+
 ## What runs
 
 | Service | URL (127.0.0.1 only) | What it is |
@@ -827,7 +833,7 @@ Someone outside reports problems through `/.well-known/security.txt`.
 | `make setup-host` / `make test-host` | The same checks without the Docker stack, for cloud sandboxes: set up `.venv`, Chromium, `node_modules` and a Postgres once, then run them |
 | `make worktree NAME=...` | A sibling worktree on its own branch with its own stack, ports and `data/`, for an agent working alongside you; `worktree-list` and `worktree-remove NAME=...` go with it |
 | `make vm-sync` | Mirror this checkout, its worktrees and the checkouts named in `~/.config/jap/vm-sync.conf` to the VM that runs their Docker stacks: code and `.env`, one way, never the databases. It refuses when the VM's copy was changed there (`FORCE=1` overwrites); `ENV=live` adds live's files. `vm-sync-auto` does it every two minutes by launchd, `vm-sync-auto-off` stops that, `vm-ps` lists every container on the VM by stack, and `vm-tunnel` keeps the stacks' ports forwarded so `localhost:<port>` on the Mac is the stack on the VM (`vm-tunnel-off` drops that) |
-| `make hooks` | Turn on the pre-commit check for this clone: refuses secrets files, `docs/`, `data/` and anything that looks like a key |
+| `make hooks` | Turn on the pre-commit check for this clone: refuses secrets files, the private documents (`docs/intent/sources/`, `docs/private/`, PDFs), `data/` and anything that looks like a key |
 | `make backup` / `make restore FILE=...` | Dump to / restore from `data/backups/` (the app also makes one every day) |
 | `make backup-pull SERVER=...` | Copy the server's newest dump to this Mac: the one backup that does not live with the server |
 | `make close-unfollowed` | List open postings of companies you no longer follow; `APPLY=1` closes them (back up first) |
@@ -860,6 +866,8 @@ backend/            main.py, config.py, schemas/, database/ (+ migrations/), api
                     sources/, pipeline/, llm/, functions/ (Inngest), tests/
 frontend/           src/pages, src/components, src/api
 data/               gitignored: resumes, screenshots, cover letters, backups
+docs/               the project docs (start at docs/README.md): intent/, structure/, behaviour/,
+                    state, ideas, bugs; docs/intent/sources/ is gitignored
 .github/workflows/  CI: ruff, mypy, pytest; ui lint and build; compose config check; agent guards
 AGENTS.md           the rules for coding agents; CLAUDE.md, .devin/, .claude/, .gemini/ and
                     .cursorignore only point at it and enforce it (AGENTS.md, Harnesses)

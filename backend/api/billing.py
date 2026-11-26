@@ -1,6 +1,6 @@
 """The plan an account is on, and changing it (IDEA-21).
 
-`docs/` is absent from this checkout, so paid plans have no PRD id yet; IDEA-21 in IDEAS.md
+The PRD is absent from this checkout, so paid plans have no PRD id yet; IDEA-21 in docs/ideas.md
 is the entry.
 
 Four routes, all this account's own (PRD S7): what is on offer, start paying, stop paying.

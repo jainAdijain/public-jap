@@ -1,6 +1,6 @@
 """Selling a plan (IDEA-21): the payment providers, and what their webhooks do to a row.
 
-`docs/` is absent from this checkout, so paid plans have no PRD id yet. IDEA-21 in IDEAS.md
+The PRD is absent from this checkout, so paid plans have no PRD id yet. IDEA-21 in docs/ideas.md
 is the entry; replace the citation when the PRD section exists.
 
 Three files, and the split is deliberate:
