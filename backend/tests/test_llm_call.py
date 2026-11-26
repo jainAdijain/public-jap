@@ -124,6 +124,9 @@ async def test_guard_blocks_and_nothing_is_sent(db: str, monkeypatch: pytest.Mon
 
 
 async def test_spend_cap_stops_calls(db: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from config import get_settings
+
+    monkeypatch.setattr(get_settings(), "jap_total_cost_cap_usd", 2.0)  # the admin's bound
     monkeypatch.setattr(client, "chat", Stub([GOOD, GOOD], cost=2.5))
     async with get_sessionmaker()() as session:
         await call(

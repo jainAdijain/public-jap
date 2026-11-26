@@ -1,5 +1,10 @@
 """Creating accounts (PRD S1, S10, S12): who is the admin, what a new account starts with,
-and the switch that pauses sign-up.
+the switch that pauses sign-up, and the invite list that lets named people past it.
+
+The invite list (launch decision D4) is how a soft launch admits a fixed group: sign-up stays
+paused, and only an address the admin added may create an account, by password or Google.
+An address leaves the list the moment its account is made, so the list only ever holds
+people who have not signed up yet. It is one app_setting row of lower-cased addresses.
 
 The first account is the admin and needs no email check. A database that had data before it
 had any account carries a placeholder owner (migration 0011_tenancy), which the first
@@ -32,6 +37,7 @@ UNCLAIMED_EMAIL = "unclaimed@jap.invalid"  # as in migration 0011_tenancy
 VERIFY_HOURS = 24
 VERIFY_EVERY = timedelta(minutes=2)
 SIGN_UP_PAUSED = "sign_up_paused"
+SIGN_UP_INVITES = "sign_up_invites"
 
 
 async def unclaimed(session: AsyncSession) -> AppUser | None:
@@ -82,6 +88,39 @@ async def set_sign_up_paused(session: AsyncSession, paused: bool) -> None:
             index_elements=["key"], set_={"value": paused, "updated_at": sessions.now()}
         )
     )
+
+
+async def invites(session: AsyncSession) -> list[str]:
+    # A column read, not session.get(): the row may have been changed in this transaction.
+    value = await session.scalar(select(AppSetting.value).where(AppSetting.key == SIGN_UP_INVITES))
+    return sorted(str(e) for e in value) if isinstance(value, list) else []
+
+
+async def _save_invites(session: AsyncSession, emails: list[str]) -> None:
+    stmt = insert(AppSetting).values(key=SIGN_UP_INVITES, value=emails)
+    await session.execute(
+        stmt.on_conflict_do_update(
+            index_elements=["key"], set_={"value": emails, "updated_at": sessions.now()}
+        )
+    )
+
+
+async def invite(session: AsyncSession, email: str) -> None:
+    emails = set(await invites(session)) | {email.strip().lower()}
+    await _save_invites(session, sorted(emails))
+
+
+async def uninvite(session: AsyncSession, email: str) -> None:
+    emails = set(await invites(session)) - {email.strip().lower()}
+    await _save_invites(session, sorted(emails))
+
+
+async def may_sign_up(session: AsyncSession, email: str) -> bool:
+    """Whether a new account may be made for this address now: sign-up is open, or the
+    address is on the invite list (D4). The first account never asks (it is the admin)."""
+    if not await sign_up_paused(session):
+        return True
+    return email.strip().lower() in await invites(session)
 
 
 async def verification_mail(

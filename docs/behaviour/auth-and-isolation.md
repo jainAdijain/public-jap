@@ -1,6 +1,6 @@
 # Accounts, sign-in and data isolation
 
-**Requirements:** AUTH-1 to AUTH-10, TEN-1 to TEN-8, CONSENT-1 to CONSENT-3 ([requirements.md](../intent/requirements.md)). The tests that
+**Requirements:** AUTH-1 to AUTH-11, TEN-1 to TEN-8, CONSENT-1 to CONSENT-3 ([requirements.md](../intent/requirements.md)). The tests that
 prove each one are in [traceability.md](traceability.md); a rule here with no test is a gap
 there.
 
@@ -15,6 +15,15 @@ migrations `0007_auth`, `0011_tenancy`, `0012_email_verify`, `0013_rls`, `0015_c
   **admin** and goes straight in; `JAP_ADMIN_EMAIL` restricts that first account to one
   address. Every later account confirms its address by an emailed single-use link (24 hours).
   The answer is the same whether or not the address already exists.
+- **Paused, by invitation** (launch decision D4). While the admin has sign-up paused, only an
+  address on the admin's invite list (Settings > Accounts, Invite) can create an account, by
+  password or by Google; Google must say the address is verified before an invite counts. The
+  invite leaves the list once its account exists. The sign-in screen says "New accounts are by
+  invitation for now" and keeps the form while the list is not empty. Nothing is emailed: the
+  admin tells the person. Inviting an address that already has an account is refused. A
+  paused sign-up refuses an uninvited address with `sign_up_closed` and an invited one goes on
+  to the emailed link, so trying addresses could tell an invited one from another; the tries
+  limit and Turnstile bound that.
 - **Sign-up is limited** per visitor address and per email (`JAP_AUTH_TRIES_PER_HOUR_IP`,
   `JAP_AUTH_TRIES_PER_HOUR_EMAIL`, 429 past them). Behind the tunnel
   `JAP_CLIENT_IP_HEADER=CF-Connecting-IP` is required, or every visitor shares one address.
@@ -90,7 +99,9 @@ Other parts of the same rule:
 The admin (Settings > Accounts) sees each account's address, when it joined and last signed
 in, its state and its AI spend this month: **never anything a user wrote**. The admin can turn
 an account off (signed out everywhere, work stops, data kept) or on, set one account's own
-limits, pause sign-up, and delete an account on request. System status, Health, backups, form
+limits (including AI credit on JAP's key, launch decision D1), allow or stop Automatic mode
+for it (D2), pause sign-up and keep the invite list (D4), and delete an account on request.
+Each account's row says whose money its AI runs on: its own key, credit, or none yet. System status, Health, backups, form
 tests, capacity and duplicates are admin-only. The admin's own account cannot be deleted. On
 live there is no Adminer; looking at the database means SSH to the server.
 

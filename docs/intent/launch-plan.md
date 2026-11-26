@@ -44,23 +44,29 @@ The gate between stages is the **Pause sign-up** switch in Settings > Accounts.
 
 These do not block deploying, but they block letting strangers in.
 
-- [ ] **Owner, D1: the AI money.** At today's settings 150 free accounts can spend about $155 a
-      month against a $20 total cap: nobody is slow, everybody stops. Pick one:
-      raise `JAP_TOTAL_COST_CAP_USD` and pay; lower `JAP_MONTHLY_COST_CAP_USD` (an application
-      costs 2 to 3 cents, so $0.50 still covers one a day); hold the number of accounts where
-      the cap fits (about 15 today); or make Plus the way past it. *Suggested for the soft
-      launch:* hold at ~15 accounts with the current caps, decide the rest from real spend.
-- [ ] **Owner, D2: Automatic mode for the public** (IDEA-20). *Suggested:* Review mode only
-      for the soft launch (hide or refuse Automatic for non-admin accounts), decide from the
-      per-site refusal rates. If chosen, that is a small code change with a test.
-- [ ] **Owner, D3: selling Plus.** *Suggested:* keep `JAP_BILLING_ENABLED=false` for the soft
-      launch. Before turning it on: a refund and cancellation page, the tax position, a
-      Razorpay live account, one real sandbox checkout and webhook end to end.
-- [ ] **Owner, D4: how the soft launch admits people.** Pausing sign-up stops everyone, so
-      letting in ten named people means un-pausing briefly or building invites (IDEA-9).
-      *Suggested:* un-pause for a short window and send the address only to them; build
-      invites only if strangers start arriving.
-- [ ] **Owner:** the first week's limits (per-account caps, `JAP_DAILY_APPLICATIONS_TOTAL`).
+Decided by Aditya on 26 Nov 2026 and built in v0.25.0 ([decisions.md](decisions.md), 27 to 30).
+
+- [x] **D1: the AI money.** No free AI. `JAP_MONTHLY_COST_CAP_USD` is 0, and neither plan
+      includes AI on JAP's key. An account brings its own OpenRouter key, or the admin grants
+      that one account credit (Settings > Accounts, "AI credit a month"). With neither, the model
+      is never called and the person is told to add a key or ask. The worst-case bill is the
+      $5 service budget plus the grants. Using a person's own Claude or ChatGPT subscription is
+      IDEA-25, not built.
+- [x] **D2: Automatic mode.** Review mode for everyone. The admin allows Automatic account by
+      account (Settings > Accounts, "Allow Automatic"), and decides about the public from the
+      per-site refusal rates.
+- [x] **D3: selling Plus.** Not for the soft launch, and not before real users have tried JAP:
+      `JAP_BILLING_ENABLED=false` stays. When it comes back, Plus sells companies and
+      applications only (its $8 of AI was removed). Before turning it on: a full postal
+      address in the terms, a refund and cancellation page, the tax position (GST, a CA's
+      question), a Razorpay live account, and one real test-mode checkout and webhook end to end.
+      Meanwhile the admin raises one account's limits by hand when a tester needs more.
+- [x] **D4: how the soft launch admits people.** An invite list (Settings > Accounts). Sign-up
+      stays paused, and only an address on the list can create an account, by password or by
+      Google; the invite is used up when it is. Nothing is emailed: Aditya tells the person.
+- [x] **The first week's limits.** Keep 1 company and 1 application a day per account, raised
+      by hand where needed. Set `JAP_DAILY_APPLICATIONS_TOTAL=50` in `.env.live` at the first
+      deploy (stage 3), not 200.
 
 ## Stage 3: first real release on the server
 
@@ -72,6 +78,8 @@ failure is cheap.
 - [ ] Tag `v0.24.0`, push it, watch the Release workflow push both images to GHCR
 - [ ] On the server or VM: `server-setup.sh` if not done, a tunnel of the server's own,
       `make env ENV=live`, then the secrets by hand ([operations.md](../structure/operations.md))
+- [ ] Set `JAP_SECRET_KEY` (32 random bytes, base64) in `.env.live`: without it nobody can
+      save their own OpenRouter key, and after D1 that is the only AI most accounts have
 - [ ] Set `JAP_ADMIN_EMAIL` **before** the first start, so the first account (the admin) can
       only be yours; then create it
 - [ ] `make deploy ENV=live TAG=v0.24.0`; `/api/health` green on all four checks;

@@ -366,7 +366,8 @@ function ApplyModal({ rows, onCancel, onDone }: { rows: ListingRow[]; onCancel: 
             ) : (
               <li className="error-text">There is no resume yet. Upload one on Profile first.</li>
             )}
-            {profile?.spend.reached && <li className="warn-text">The monthly AI limit is reached, so forms that need a written answer or a cover letter will stop for you.</li>}
+            {profile?.spend.reached && profile.ai_source === 'none' && <li className="warn-text">This account has no AI yet, so forms that need a written answer or a cover letter will stop for you.</li>}
+            {profile?.spend.reached && profile.ai_source === 'jap' && <li className="warn-text">The monthly AI limit is reached, so forms that need a written answer or a cover letter will stop for you.</li>}
             {other > 0 && <li className="muted">{plural(other, 'ticked job')} already {other === 1 ? 'has' : 'have'} an application and {other === 1 ? 'is' : 'are'} left out.</li>}
           </ul>
           {needsOptIn && (
@@ -566,7 +567,17 @@ export default function JobsPage() {
         <FindButton />
       </div>
 
-      {spend?.reached && (
+      {profile?.ai_source === 'none' && (
+        <div className="banner" role="status">
+          <span>
+            <b>No AI yet.</b> Add your own OpenRouter key in Settings, or ask the admin for credit. Until then JAP finds and matches jobs, but can&apos;t read your resume or write answers and cover letters.
+          </span>
+          <button type="button" onClick={() => go('settings')}>
+            Add your key
+          </button>
+        </div>
+      )}
+      {spend?.reached && profile?.ai_source === 'jap' && (
         <div className="banner" role="status">
           <span>
             <b>AI limit reached</b> ({`$${spend.month_usd.toFixed(2)}`} this month). JAP has stopped reading job descriptions and writing answers and cover letters, and won&apos;t send anything that needs them.

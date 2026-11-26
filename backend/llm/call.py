@@ -54,6 +54,18 @@ class SpendCapReached(Exception):
     shared postings, or the total limit."""
 
 
+NO_AI_CREDIT = (
+    "This account has no AI credit: add your own OpenRouter key in Settings, "
+    "or ask the admin for credit"
+)
+
+
+class NoAiCredit(SpendCapReached):
+    """The account has no allowance on JAP's key at all and no key of its own (launch
+    decision D1). A SpendCapReached, so every step that stops at a cap stops here too, but
+    with a message that says what to do instead of "Spend cap reached: $0.00 of $0.00"."""
+
+
 @dataclass
 class Prompt:
     version: str
@@ -157,6 +169,10 @@ async def call(
         spend = await (month_spend(session, user_id) if user_id else system_spend(session))
         if not spend.reached:
             spend = await total_spend(session)
+    if spend is not None and spend.reached and user_id and spend.cap_usd <= 0:
+        log(error="No AI credit")
+        await session.commit()
+        raise NoAiCredit(NO_AI_CREDIT)
     if spend is not None and spend.reached:
         log(error="Spend cap reached")
         await session.commit()

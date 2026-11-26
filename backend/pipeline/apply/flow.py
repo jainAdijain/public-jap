@@ -46,7 +46,7 @@ from pipeline.apply import security_code
 from pipeline.apply.answers import bank_answer, draft_answer, pick_option
 from pipeline.apply.form import FormError, FormField, FormRead, Upload, read_form, submit_form
 from pipeline.cover_letter import LetterFailed, generate, upload_name, write_pdf
-from pipeline.limits import limits_for
+from pipeline.limits import automatic_allowed, limits_for
 from pipeline.resume import sensitive_from_profile
 from pipeline.runs import in_scope, role_matcher
 from pipeline.workspace import follows, profile_of, set_status
@@ -157,12 +157,17 @@ async def create_attempt(session: AsyncSession, listing_id: str, run_id: str | N
     profile = await profile_of(session)
     resume = await active_resume(session)
     assert listing is not None and listing.primary_posting_id and resume is not None
+    # Mode is fixed here. Automatic needs the admin's say-so for this account (launch
+    # decision D2); without it the job is prepared in Review mode and waits for the person.
+    mode = profile.apply_mode if profile else "review"
+    if mode == "automatic" and not await automatic_allowed(session, tenant.user_id(session)):
+        mode = "review"
     app = Application(
         user_id=tenant.user_id(session),
         listing_id=lid,
         posting_id=listing.primary_posting_id,
         run_id=uuid.UUID(run_id) if run_id else None,
-        mode=profile.apply_mode if profile else "review",
+        mode=mode,
         resume_version_id=resume.id,
         attempts=1,
     )

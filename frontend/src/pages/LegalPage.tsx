@@ -139,6 +139,7 @@ function Privacy() {
       <Para title="What JAP stores">
         <ul>
           <li>Your email address and password, which is kept only as a salted hash and is never readable.</li>
+          <li>If you were invited before you had an account: your email address alone, on the invite list, until your account is made or the invite is withdrawn.</li>
           <li>What you put on your profile: name, email, phone, address, links, the roles, skills and places you want.</li>
           <li>Every resume you upload, and the text taken out of it.</li>
           <li>The answers you give to employers&apos; questions, and cover letters written for you.</li>

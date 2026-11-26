@@ -445,6 +445,9 @@ class AppUser(Timestamps, Base):
     limit_ai_usd: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     limit_boards: Mapped[int | None] = mapped_column(Integer)
     limit_applications: Mapped[int | None] = mapped_column(Integer)
+    # Whether the admin lets this account use Automatic mode (launch decision D2). The
+    # admin's own account needs no switch (pipeline/limits.py: automatic_allowed).
+    may_automatic: Mapped[bool] = mapped_column(Boolean, server_default="false")
 
 
 class UserIdentity(Timestamps, Base):

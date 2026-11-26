@@ -65,7 +65,8 @@ Exit test: to be written with the requirements.
 Goal: strangers can sign up, and 1.0.0 is tagged. The steps, with Aditya's decisions marked, are in
 [launch-plan.md](launch-plan.md).
 Built in v0.24.0, PR 6: encrypted backups, the real terms and privacy notice, load test,
-supply-chain checks.
-Delivers: DATA-4, OPS-5
+supply-chain checks. v0.25.0 built Aditya's stage 2 decisions: no AI on JAP's key without a
+grant, Automatic mode per account, and the invite list.
+Delivers: DATA-4, OPS-5, AUTH-11, APPLY-8, BILL-6
 Exit test: [launch-plan.md](launch-plan.md) stage 6 done, DATA-4 and OPS-5 Proved, OPS-4 run for
 real, `v1.0.0` tagged and running in prod.

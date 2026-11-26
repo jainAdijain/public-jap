@@ -119,8 +119,9 @@ async def test_first_account_is_the_admin_and_needs_no_email_check(
     monkeypatch.setattr("api.auth.send_mail", fake_send)
     state = (await anon.get("/api/auth/state")).json()
     assert state == {
-        "has_accounts": False, "sign_up_open": True, "user": None, "two_step_pending": False,
-        "turnstile_site_key": "", "terms_version": TERMS_VERSION, "google": False,
+        "has_accounts": False, "sign_up_open": True, "sign_up_by_invite": False, "user": None,
+        "two_step_pending": False, "turnstile_site_key": "", "terms_version": TERMS_VERSION,
+        "google": False,
     }  # fmt: skip
     short = await anon.post(
         "/api/auth/sign-up", json={"email": OWNER_EMAIL, "password": "short", **TICK}

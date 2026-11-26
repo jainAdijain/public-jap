@@ -1,6 +1,6 @@
 # JAP: Job Application Pipeline
 
-**Version 0.24.0 (ready to be shown to strangers: encrypted backups, terms and a privacy notice, a load test), 26 Nov 2026.**
+**Version 0.25.0 (the launch switches: no free AI, Automatic by the admin's say-so, an invite list), 26 Nov 2026.**
 
 JAP watches the public job boards of the companies you pick (Greenhouse, Lever and Ashby),
 lists the jobs that match your profile, and prepares or submits applications for you to review.
@@ -120,18 +120,25 @@ screens) runs as the service (`backend/database/tenant.py`, migration `0013_rls`
 - **The admin** (Settings > Accounts) sees each account's address, when it joined and last
   signed in, its state and its AI spend this month, never anything a user wrote. The admin can
   turn an account off (it is signed out everywhere and its searches and applications stop;
-  its data is kept) or on again, and pause sign-up. System status, Health, backups, form
+  its data is kept) or on again, pause sign-up, invite named addresses while it is paused
+  (**Invite**: only those can create an account, and each invite is used up once it is),
+  allow or stop **Automatic mode** for one account (off for everyone else), and see whose
+  money each account's AI runs on: its own key, credit, or none yet. System status, Health, backups, form
   tests and deciding duplicates are the admin's too; to anyone else those routes are Not Found.
 - **The free plan** is what every account but the admin's gets: 1 company to follow
-  (`JAP_FREE_BOARDS`), 1 application a day (`JAP_FREE_DAILY_APPLICATIONS`) and $1 of AI a
-  month (`JAP_MONTHLY_COST_CAP_USD`; an application costs about 2 to 3 cents of AI, so one a
-  day stays under it). Settings shows it as **Your plan**, and Job preferences says how many
-  companies the plan follows. The admin can give any one account its own numbers for all
-  three (Settings > Accounts > Limits; an empty box is the plan's number) and is not held to
-  the plan themselves. A user can lower their own AI limit and daily cap, never raise them.
-- **Plus, the paid plan** (`JAP_PLUS_*`) is the same three numbers, larger: 10 companies, 10
-  applications a day, and an AI allowance set well above what those applications can spend,
-  because it is a guard against a runaway and not the thing being bought. Settings shows it
+  (`JAP_FREE_BOARDS`), 1 application a day (`JAP_FREE_DAILY_APPLICATIONS`) and **no AI on
+  JAP's key** (`JAP_MONTHLY_COST_CAP_USD`, 0). An account's AI comes from its own OpenRouter
+  key (Settings > Your plan), or from credit the admin grants that one account (Settings >
+  Accounts > Limits, "AI credit a month"; an application costs about 2 to 3 cents of AI, so
+  $1 covers about one a day). With neither, JAP still finds and matches jobs, but cannot
+  read a resume or write answers and letters, and Jobs and Settings say so. Settings shows
+  the plan as **Your plan**, and Job preferences says how many companies the plan follows.
+  The admin can give any one account its own numbers (an empty box is the plan's number) and
+  is not held to the plan themselves; their own AI is bounded by `JAP_TOTAL_COST_CAP_USD`. A
+  user can lower their own AI limit and daily cap, never raise them.
+- **Plus, the paid plan** (`JAP_PLUS_*`) is the companies and applications, larger: 10
+  companies and 10 applications a day. It carries no AI on JAP's key either. It stays off
+  (`JAP_BILLING_ENABLED=false`) until real users have tried JAP. Settings shows it
   under **Your plan** with an Upgrade button, which goes to a page the payment provider
   hosts: no card detail is typed into JAP and no payment script runs on its pages. The
   provider tells JAP what came of it by posting to `/api/webhooks/<provider>`, which trusts
@@ -413,7 +420,9 @@ reposts it (a repost joins the same listing). **Skip** cancels a prepared or wai
 
 ## Automatic mode
 
-The **Review | Automatic** switch on the Runs card sets the Apply mode (A4). Turning it on
+The **Review | Automatic** switch on the Runs card sets the Apply mode (A4). Automatic is
+the admin's to allow, account by account (Settings > Accounts, **Allow Automatic**): until
+then the option is greyed out, and a job is always prepared in Review mode. Turning it on
 asks for its own agreement, because sending without showing you first is a different thing
 to agree to ([What you agree to](#what-you-agree-to)). In Automatic mode
 a job is submitted without asking you once its form is filled, unless something about it is
@@ -446,8 +455,9 @@ in Automatic mode. Switching back to Review makes the next run prepare without s
 - **Alert emails** go to the address on My profile, once each: when a run fails, when a board
   in a run can't be fetched, when an application ends Failed (with the screenshot attached),
   and when the weekly form test can't read a form. They never carry answers or letters.
-- **Spend cap**: My profile has an **AI spend** card with this month's spend and the monthly cap
-  ($2, or `JAP_MONTHLY_COST_CAP_USD`). Once it is reached, model steps stop: job descriptions
+- **Spend cap**: Settings > Your plan shows this month's AI spend on JAP's key against the
+  account's credit (none unless the admin grants some, `JAP_MONTHLY_COST_CAP_USD`; an account
+  with its own key is not counted against it). Once it is reached, model steps stop: job descriptions
   aren't read, answers aren't drafted, and no cover letter is written, so a job that needs
   one stops at Needs input ("Spend cap reached ...") and nothing is sent without it. The Runs
   card and the last run line say so. Lower the cap to $0.05 to try it, then set it back.
@@ -755,12 +765,10 @@ the problem and the money is**:
 | Disk held by screenshots and traces | ~25 GB | — |
 | **AI spend if every account uses its cap** | **$155 a month** | **$20** |
 
-So the first thing to break is `JAP_TOTAL_COST_CAP_USD`: 150 accounts on the free $1 each,
-plus the $5 the service spends reading shared job descriptions, is $155 a month against a
-$20 stop. Nobody is slow — everybody stops. Before opening sign-up, decide which of these
-it is: raise the total cap and pay the bill, lower the free per-account allowance, hold
-sign-up at a number the cap fits (about 15 accounts at today's settings), or make paid
-plans the way past it. The disk figure is the other one worth a look: 25 GB of screenshots
+So the first thing to break was `JAP_TOTAL_COST_CAP_USD`: 150 accounts on a free $1 each,
+plus the $5 the service spends reading shared job descriptions, was $155 a month against a
+$20 stop. Since v0.25.0 there is no free AI (launch decision D1): accounts bring their own
+key or get credit from the admin, so the worst case is the $5 plus what the admin grants. The disk figure is the other one worth a look: 25 GB of screenshots
 and traces at the current retention is most of a small server's disk.
 
 Two numbers in that table are assumptions, not measurements, and are marked as such in the
@@ -780,13 +788,15 @@ server's CPU, which `make ollama-check` and a real run answer.
 - [ ] Raise `TERMS_VERSION` in `backend/auth/consent.py` **once**, with the final wording,
       so the handful of accounts that agreed to the draft are asked again at launch and
       not twice in a week.
-- [ ] Settle the AI spend question above.
-- [ ] Settle IDEA-20: whether Automatic mode is offered to the public at all.
+- [x] Settle the AI spend question above (v0.25.0: own key or the admin's credit).
+- [x] Settle IDEA-20 for the launch (v0.25.0: Automatic only where the admin allows it).
+- [ ] `JAP_SECRET_KEY` set on live, or nobody can save their own OpenRouter key.
 - [ ] `JAP_BACKUP_AGE_RECIPIENT` set on live, and one encrypted backup actually restored.
 - [ ] An uptime check on `https://<host>/api/health` every five minutes (O7). A stranger
       gets `{"ok": true}` and nothing else from it, which is all a monitor needs; the
       service-by-service detail goes only to the admin and to callers inside the stack.
-- [ ] Decide what the first week's limit is, and who it is given to.
+- [x] Decide what the first week's limit is, and who it is given to (1 company and 1
+      application a day, raised by hand; `JAP_DAILY_APPLICATIONS_TOTAL=50`; the invite list).
 
 ### Letting people in slowly
 
@@ -877,6 +887,7 @@ AGENTS.md           the rules for coding agents; CLAUDE.md, .devin/, .claude/, .
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.25.0 | 26 Nov 2026 | The launch switches (launch plan stage 2, decisions D1 to D4). **No free AI**: `JAP_MONTHLY_COST_CAP_USD` is 0 and Plus no longer carries $8 of AI (`JAP_PLUS_AI_USD` is gone), so an account's AI runs on its own OpenRouter key or on credit the admin grants it in Settings > Accounts; with neither, no model is called and Jobs and Settings say to add a key or ask (`NoAiCredit`). The admin's own AI is bounded by the total. **Automatic mode is the admin's to allow**, account by account (`app_user.may_automatic`, migration `0022_launch_switches`, which moves other accounts on Automatic back to Review); a job is prepared in Review mode whenever the account is not allowed. **An invite list**: while sign-up is paused, only an address the admin added can sign up, by password or by a Google account that vouches for it, and the invite is used up. Plus stays off until real users have tried JAP. |
 | 0.24.0 | 26 Nov 2026 | Ready to be shown to strangers (IDEA-11, IDEA-23, part). **Encrypted backups**: with `JAP_BACKUP_AGE_RECIPIENT` set, `pg_dump` goes through `age` on its way to disk and the server holds only the public key, so neither it nor anyone who takes the hosting account can read its own backups. **Terms of service and a privacy notice** carrying what Article 13 and the DPDP Act ask for, including Razorpay for those who pay for Plus; the page calls itself a draft until the four operator facts in `frontend/src/legal.ts` are filled in, and every claim in it is a test (`test_privacy_claims.py`). Everyone is asked to agree again (`TERMS_VERSION` 2026-11-22). **`make load-test`** builds 150 accounts and reports against fixed budgets: the first ceiling is the AI money, not the machine. **Security**: `/api/health` tells a stranger only whether it is up; dependencies pinned and hashed in `requirements.lock` (`make lock`); pip-audit, npm audit, gitleaks and Trivy in CI, Dependabot behind them; `security.txt`. |
 | 0.23.0 | 22 Nov 2026 | A plan that can be paid for (IDEA-21). **Plus** is the free plan's three numbers made larger — 10 companies, 10 applications a day — and every one of them still comes from `limits_for`, so `api/boards.py`, `pipeline/apply/flow.py` and `llm/spend.py` never learn that a subscription exists. The order it resolves in is the whole policy: a number the admin set for that one account, else the plan its subscription grants, else free; and on top of either, what the owner chose for themselves, which can only lower a figure. Plus's **AI allowance is a guard, not the product**: it sits far above what 10 applications a day can spend, because an account that paid and was stopped mid-month for AI would be a support ticket and not a limit. **Checkout is a redirect** to a page Razorpay hosts (`0021_billing`), so no card detail reaches JAP, no payment script runs on its pages and the Content-Security-Policy is untouched; nothing personal is sent either, since the subscription carries only the account's id and the payer types their own details there. **The webhook** is the one route a stranger can reach, so it is applied exactly once (`UNIQUE (provider, event_id)`, inserted before it acts, in the same transaction), never backwards (an event older than the state held is recorded and dropped), and as the service, because nobody is signed in and the row belongs to someone; anything unsigned is Not Found. **Nobody is cut off on the day a payment fails**: the plan runs to the end of the period paid for and `JAP_BILLING_GRACE_DAYS` past it, since the provider is still retrying and an Indian e-mandate gives the payer a day's notice before a charge is even attempted. Cancelling stops the renewal and leaves the rest of the period alone, and deleting an account cancels the mandate first so nothing goes on charging someone who has no account. `subscription` is private data like everything else, so export and erasure already carry it. Selling is **off** (`JAP_BILLING_ENABLED=false`) until a provider is configured, and a merchant of record for outside India is still to be chosen |
 | 0.22.0 | 21 Nov 2026 | Applying at scale (IDEA-15 to IDEA-19). **Side by side** (`apply-listing`): the one slot for the whole service becomes one per account under `JAP_APPLY_BROWSERS`, so people apply at the same time while their own applications still go one after another. A browser is what the limit counts, because each holds a worker. **A code for everyone** (`0019_security_code`): Greenhouse emails an 8-character code and holds the application until it is typed in, and only the admin's mailbox could be read, so every other account was told to apply by hand. Now a code is matched by **who it was addressed to** — each account gets `jap+<token>@…` and forwards to it with one mail filter — and the recipient is looked for in every header a forward might keep. Where a provider drops it, an inbound-email service can post the message to `/api/inbound/email` under `JAP_INBOUND_SECRET`, the one route no browser session reaches. And the person can always type the code in on the job itself, which is the only route on a JAP with no mailbox. The code lives on the application row for the minutes the form is open and is cleared by the same statement that marks it Applied. This ships **with** the concurrency and not after it: one slot at a time was what had been keeping the shared mailbox safe by accident. **Pacing** (`0020_pacing`): a job site sees the service, not one user, so beside each account's cap and 30-second gap there is a gap per ATS and a ceiling for everyone together, both read through functions that return a number and never a row; and Pause sending stops one account without turning it off or taking back its consent. **What each site did** with every submission — confirmed, refused, asked for a code — is recorded per ATS, because those rates are what say whether JAP is being read as a bot. **How long it takes** (`make capacity`, Settings): the Inngest middleware was already recording a duration for every step, so capacity is measured from what is there rather than guessed; the per-application total is the honest figure, since a submit still waiting on the cap returns before it opens a browser. **Your own AI key** (`0018_user_secret`, IDEA-19): paste an OpenRouter key and your work is billed to it and your JAP allowance left alone. Sealed with AES-GCM under `JAP_SECRET_KEY`, bound to the account so a row copied elsewhere will not open, and only its last four characters ever come back. `billed_to='byok'` is left out of the allowance, the shared budget and the total. **An outbound address** (IDEA-18) is the seam only: `JAP_APPLY_PROXY` is empty, so applications still leave from the server's own address until the per-site rates say otherwise |

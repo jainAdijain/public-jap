@@ -119,9 +119,11 @@ async def state(request: Request, session: Session) -> AuthState:
     row = await sessions.find(session, request, sessions.SIGNED_IN)
     user = await session.get(AppUser, row.user_id) if row else None
     pending = await sessions.find(session, request, sessions.TWO_STEP)
+    paused = has_accounts and await accounts.sign_up_paused(session)
     return AuthState(
         has_accounts=has_accounts,
-        sign_up_open=not has_accounts or not await accounts.sign_up_paused(session),
+        sign_up_open=not paused,
+        sign_up_by_invite=paused and bool(await accounts.invites(session)),
         user=await user_out(session, user) if user else None,
         two_step_pending=user is None and pending is not None,
         turnstile_site_key=get_settings().turnstile_site_key,
@@ -178,7 +180,7 @@ async def sign_up(
         await sessions.start(session, user, sessions.SIGNED_IN, request, response)
         await session.commit()
         return SignInResult(signed_in=True, two_step=False, user=await user_out(session, user))
-    if await accounts.sign_up_paused(session):
+    if not await accounts.may_sign_up(session, body.email):
         raise ApiError(403, "sign_up_closed", SIGN_UP_CLOSED)
     _new_password(body.password)
     existing = await _by_email(session, body.email)
@@ -190,6 +192,7 @@ async def sign_up(
         await session.flush()
         mail = await accounts.verification_mail(session, user, force=True)
         await accounts.start_workspace(session, user)
+        await accounts.uninvite(session, body.email)  # used: an invite admits one account
     elif existing.email_verified_at is None and existing.disabled_at is None:
         # Still waiting for its link: the tick just given counts for it too (S14), so the
         # account is not asked a second time the moment the link is opened.
@@ -547,7 +550,11 @@ async def _google_user(
         )
         return existing
     first = not await accounts.any_account(session)
-    if not first and await accounts.sign_up_paused(session):
+    # An invite is for an address (D4), so Google has to vouch for it before it counts.
+    if not first and not (
+        await accounts.may_sign_up(session, who.email)
+        and (who.email_verified or not await accounts.sign_up_paused(session))
+    ):
         raise ApiError(403, "sign_up_closed", SIGN_UP_CLOSED)
     # A new account with no password at all: Google is how it signs in (S16). It is not
     # asked for the terms here, having no session to be asked in, so it is made without
@@ -562,6 +569,7 @@ async def _google_user(
         UserIdentity(user_id=user.id, provider="google", subject=who.subject, email=who.email)
     )
     await accounts.start_workspace(session, user)
+    await accounts.uninvite(session, who.email)
     return user
 
 

@@ -78,6 +78,9 @@ CLAIMS = {
     "payment_sees_no_card": "JAP never sees your card or bank details",
     "razorpay_gets_an_id": "JAP sends Razorpay nothing about you but an account id",
     "complain": "you can complain to a data protection authority",
+    "invite_only_address": (
+        "your email address alone, on the invite list, until your account is made"
+    ),
 }
 
 # Claims that are about a person's conduct or a contract, not about what the code does.
@@ -192,6 +195,26 @@ async def test_the_admin_cannot_read_another_persons_content(
     assert "Confidential" not in body and "Secret?" not in body
     # And the admin's own answer list is the admin's own, not everyone's.
     assert [a["answer"] for a in (await api.get("/api/answers")).json()] == []
+
+
+async def test_an_invite_holds_only_the_address_and_is_gone_once_used(
+    api: httpx.AsyncClient,
+) -> None:
+    """CLAIMS[invite_only_address] (launch decision D4). tests/test_sign_up.py has the rest."""
+    from tests.conftest import _client
+
+    await api.put("/api/admin/sign-up", json={"paused": True})
+    listed = (await api.post("/api/admin/invites", json={"email": "friend@example.com"})).json()
+    assert listed["invites"] == ["friend@example.com"]  # the address, and nothing else
+    async with _client() as visitor:
+        body = {
+            "email": "friend@example.com",
+            "password": OTHER_PASSWORD,
+            "accept_terms": True,
+            "terms_version": consent.TERMS_VERSION,
+        }
+        assert (await visitor.post("/api/auth/sign-up", json=body)).status_code == 201
+    assert (await api.get("/api/admin/accounts")).json()["invites"] == []
 
 
 # --- Consent --------------------------------------------------------------------------

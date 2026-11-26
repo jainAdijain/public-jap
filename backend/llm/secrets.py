@@ -91,6 +91,12 @@ def open_sealed(ciphertext: bytes, nonce: bytes, user_id: uuid.UUID, kind: str) 
     return plain.decode()
 
 
+async def has_own_key(session: AsyncSession, user_id: uuid.UUID) -> bool:
+    """Whether this account has an OpenRouter key saved that JAP can use, without opening
+    it: for the screens that say whose key an account's AI runs on (launch decision D1)."""
+    return configured() and await session.get(UserSecret, (user_id, OPENROUTER)) is not None
+
+
 async def byok_key(session: AsyncSession, user_id: uuid.UUID) -> str | None:
     """This user's own OpenRouter key, or None to use JAP's. Never raises: a key that
     cannot be opened (the master key changed) falls back to JAP's with a warning, because

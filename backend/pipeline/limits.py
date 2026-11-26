@@ -17,10 +17,16 @@ Three things are resolved in order, and this order is the whole policy:
 3. and on top of either, what the owner chose for themselves in Settings, which can only
    lower the figure, never raise it.
 
-The admin is held to no plan. Plus's AI allowance is deliberately far above what its
-applications can spend (2 to 3 cents each), because it is a guard against a runaway, not the
-thing being sold: a paying account stopped mid-month because the AI ran out would be a
-support ticket, not a limit.
+The admin is held to no plan: their AI is bounded only by the service's total
+(JAP_TOTAL_COST_CAP_USD) and whatever they set for themselves.
+
+No plan includes AI on JAP's key (launch decision D1). Both plans carry
+JAP_MONTHLY_COST_CAP_USD, which is $0 by default: an account's AI runs on its own OpenRouter
+key (llm/secrets.py), or on credit the admin grants that one account (app_user.limit_ai_usd).
+What a plan sells is companies and applications, which cost the same whoever's key it is.
+
+Automatic mode is the admin's to allow, account by account (launch decision D2,
+app_user.may_automatic); automatic_allowed() is the one place that answers it.
 
 A subscription that has stopped paying keeps its plan until the period it paid for ends, and
 then some (JAP_BILLING_GRACE_DAYS). Nothing here cuts an account off on the day a renewal
@@ -80,7 +86,7 @@ def plans() -> dict[str, Plan]:
         PLUS: Plan(
             code=PLUS,
             name="Plus",
-            ai_usd=s.jap_plus_ai_usd,
+            ai_usd=s.jap_monthly_cost_cap_usd,
             boards=s.jap_plus_boards,
             applications_per_day=s.jap_plus_daily_applications,
             price_inr=s.jap_plus_price_inr,
@@ -139,7 +145,13 @@ async def limits_for(session: AsyncSession, user_id: uuid.UUID) -> Limits:
     set_apps = account.limit_applications if account else None
     plan = await plan_of(session, user_id)
 
-    plan_ai = set_ai if set_ai is not None else plan.ai_usd
+    plan_ai = (
+        set_ai
+        if set_ai is not None
+        else get_settings().jap_total_cost_cap_usd
+        if admin
+        else plan.ai_usd
+    )
     plan_apps = (
         set_apps
         if set_apps is not None
@@ -167,3 +179,10 @@ async def limits_for(session: AsyncSession, user_id: uuid.UUID) -> Limits:
         plan_applications=plan_apps,
         custom=any(v is not None for v in (set_ai, set_boards, set_apps)),
     )
+
+
+async def automatic_allowed(session: AsyncSession, user_id: uuid.UUID) -> bool:
+    """Whether this account may use Automatic mode (launch decision D2): the admin always,
+    anyone else only once the admin has switched it on for them in Settings > Accounts."""
+    account = await session.get(AppUser, user_id)
+    return account is not None and (account.is_admin or account.may_automatic)

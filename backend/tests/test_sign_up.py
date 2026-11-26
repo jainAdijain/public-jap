@@ -220,13 +220,15 @@ async def test_admin_pauses_sign_up_and_turns_an_account_off(
         (OTHER_EMAIL, False, "active"),
     ]
     assert listed["sign_up_paused"] is False and listed["accounts"][1]["last_sign_in_at"]
-    assert listed["accounts"][1]["spend"] == {"month_usd": 0.0, "cap_usd": 1.0, "reached": False}
+    # No AI on JAP's key until the admin grants some (launch decision D1).
+    assert listed["accounts"][1]["spend"] == {"month_usd": 0.0, "cap_usd": 0.0, "reached": True}
+    assert listed["accounts"][1]["ai_source"] == "none"
     free = {
         "name": "Free",
         "code": "free",
         "boards": 1,
         "applications_per_day": 1,
-        "ai_usd": 1.0,
+        "ai_usd": 0.0,
         "custom": False,
     }
     assert listed["accounts"][1]["plan"] == free
@@ -306,3 +308,30 @@ async def test_first_sign_up_takes_over_data_from_before_any_account(
     assert first.status_code == 201 and first.json()["user"]["is_admin"] is True
     assert first.json()["user"]["id"] == str(row[0])
     assert (await anon.get("/api/profile")).json()["full_name"] == "From Before"
+
+
+async def test_while_paused_only_an_invited_address_may_sign_up(
+    api: httpx.AsyncClient, mails: list[Mail]
+) -> None:
+    """The soft launch's way in (launch decision D4): sign-up stays paused, and the admin
+    names who may come in. An invite admits one account and then leaves the list."""
+    from tests.conftest import _client
+
+    await api.put("/api/admin/sign-up", json={"paused": True})
+    async with _client() as new:
+        state = (await new.get("/api/auth/state")).json()
+        assert state["sign_up_open"] is False and state["sign_up_by_invite"] is False
+        await api.post("/api/admin/invites", json={"email": "NEW@example.com"})
+        state = (await new.get("/api/auth/state")).json()
+        assert state["sign_up_open"] is False and state["sign_up_by_invite"] is True
+
+        stranger = await new.post("/api/auth/sign-up", json={**NEW, "email": "x@example.com"})
+        assert stranger.status_code == 403
+        assert stranger.json()["error"]["code"] == "sign_up_closed"
+        invited = await new.post("/api/auth/sign-up", json=NEW)  # any case of the address
+        assert invited.status_code == 201 and invited.json()["verify_email"] is True
+        assert [m.to for m in mails] == ["new@example.com"]
+
+    listed = (await api.get("/api/admin/accounts")).json()
+    assert listed["invites"] == [] and listed["sign_up_paused"] is True
+    assert "new@example.com" in [a["email"] for a in listed["accounts"]]

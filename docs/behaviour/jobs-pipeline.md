@@ -1,6 +1,6 @@
 # Jobs: fetching, matching, searching and applying
 
-**Requirements:** JOBS-1 to JOBS-8, APPLY-1 to APPLY-7, TEN-7 ([requirements.md](../intent/requirements.md)). The tests that
+**Requirements:** JOBS-1 to JOBS-8, APPLY-1 to APPLY-8, TEN-7 ([requirements.md](../intent/requirements.md)). The tests that
 prove each one are in [traceability.md](traceability.md); a rule here with no test is a gap
 there.
 
@@ -81,8 +81,10 @@ submits.
 **Automatic mode** (A3, A4) needs its own consent. A filled form is submitted without asking
 unless the work mode is unclear (waits at Ready for review with the reason), something needs
 the person (Needs input), or the job is below the **required-skills bar** (default 60%, not
-prepared). Mode is fixed when a job is prepared. Whether Automatic mode is offered to the
-public at all is open (IDEA-20; decision D2 in [launch-plan.md](../intent/launch-plan.md)).
+prepared). Mode is fixed when a job is prepared. Automatic is also the admin's to allow,
+account by account (launch decision D2): without that the account is held to Review mode and
+a job is prepared in Review mode whatever the profile says (APPLY-8,
+[plans-and-limits.md](plans-and-limits.md)).
 
 **Limits** are in [plans-and-limits.md](plans-and-limits.md): daily cap, gaps per account and
 per ATS, service-wide ceiling, browsers at once, Pause sending.

@@ -72,6 +72,7 @@ export type ProfileFields = {
   tone_note: string | null
 }
 
+export type AiSource = 'own_key' | 'jap' | 'none'
 export type Profile = ProfileFields & {
   apply_mode: 'review' | 'automatic'
   daily_run: boolean
@@ -81,6 +82,11 @@ export type Profile = ProfileFields & {
   auto_apply_min_skills: number
   spend: Spend
   plan: Plan
+  /** Whose money this account's AI runs on (launch decision D1): its own key, credit on
+   *  JAP's key, or nothing yet. */
+  ai_source: AiSource
+  /** The admin lets this account use Automatic mode (launch decision D2). */
+  automatic_allowed: boolean
   /** Consent (S14). Without submit_opt_in nothing is ever sent; auto_opt_in gates Automatic. */
   submit_opt_in: boolean
   auto_opt_in: boolean
@@ -398,6 +404,7 @@ export type User = {
 export type AuthState = {
   has_accounts: boolean
   sign_up_open: boolean // false while the admin has sign-up paused (S12)
+  sign_up_by_invite: boolean // paused, but the admin invited someone: the form stays for them (D4)
   user: User | null
   two_step_pending: boolean
   turnstile_site_key: string // set: sign-up and forgot password show the "prove you're human" check
@@ -469,10 +476,12 @@ export type Account = {
   state: 'active' | 'unverified' | 'off'
   spend: Spend
   plan: Plan
+  ai_source: AiSource // own key, credit on JAP's key, or neither (D1)
+  may_automatic: boolean // the admin lets it use Automatic mode (D2)
 }
 /** The admin's numbers for one account; null puts that one back on the plan's. */
 export type AccountLimits = { ai_usd: number | null; boards: number | null; applications_per_day: number | null }
-export type Accounts = { accounts: Account[]; sign_up_paused: boolean; spend_total: Spend; spend_shared: Spend }
+export type Accounts = { accounts: Account[]; sign_up_paused: boolean; invites: string[]; spend_total: Spend; spend_shared: Spend }
 
 export const admin = {
   accounts: (signal?: AbortSignal) => request<Accounts>('/api/admin/accounts', { signal }),
@@ -480,6 +489,9 @@ export const admin = {
   turnOn: (id: string) => request<Accounts>(`/api/admin/accounts/${id}/on`, json('POST', {})),
   setLimits: (id: string, limits: AccountLimits) => request<Accounts>(`/api/admin/accounts/${id}/limits`, json('PUT', limits)),
   pauseSignUp: (paused: boolean) => request<Accounts>('/api/admin/sign-up', json('PUT', { paused })),
+  setAutomatic: (id: string, allowed: boolean) => request<Accounts>(`/api/admin/accounts/${id}/automatic`, json('PUT', { allowed })),
+  invite: (email: string) => request<Accounts>('/api/admin/invites', json('POST', { email })),
+  uninvite: (email: string) => request<Accounts>('/api/admin/invites/remove', json('POST', { email })),
 }
 
 /** Paid plans (IDEA-21). price_* are for display: what is charged is held by the provider. */

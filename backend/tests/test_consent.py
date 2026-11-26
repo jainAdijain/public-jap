@@ -242,4 +242,5 @@ async def test_the_opt_ins_are_one_account_s_own(
     await api.patch("/api/profile", json={"submit_opt_in": True, "auto_opt_in": True})
     theirs = (await other.get("/api/profile")).json()
     assert theirs["submit_opt_in"] is False and theirs["auto_opt_in"] is False
+    await api.put(f"/api/admin/accounts/{other_id}/automatic", json={"allowed": True})
     assert (await other.patch("/api/profile", json={"apply_mode": "automatic"})).status_code == 409

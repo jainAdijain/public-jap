@@ -83,7 +83,8 @@ export const money = (n: number) => `$${n.toFixed(2)}`
 export function planWords(p: { boards: number | null; applications_per_day: number; ai_usd: number }): string {
   const companies = p.boards === null ? 'any number of companies' : `${p.boards} ${p.boards === 1 ? 'company' : 'companies'}`
   const sends = `${p.applications_per_day} ${p.applications_per_day === 1 ? 'application' : 'applications'} a day`
-  return `${companies}, ${sends}, $${p.ai_usd.toFixed(2)} of AI a month`
+  const ai = p.ai_usd > 0 ? `$${p.ai_usd.toFixed(2)} of AI credit a month` : "no AI credit on JAP's key"
+  return `${companies}, ${sends}, ${ai}`
 }
 
 export const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))

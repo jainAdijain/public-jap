@@ -1,6 +1,6 @@
 # Plans, limits and money
 
-**Requirements:** BILL-1 to BILL-5, APPLY-6 ([requirements.md](../intent/requirements.md)). The tests that
+**Requirements:** BILL-1 to BILL-6, APPLY-6, APPLY-8 ([requirements.md](../intent/requirements.md)). The tests that
 prove each one are in [traceability.md](traceability.md); a rule here with no test is a gap
 there.
 
@@ -16,9 +16,26 @@ Every account has three numbers:
 | --- | --- | --- | --- |
 | Companies followed | 1 | 10 | `JAP_FREE_BOARDS`, `JAP_PLUS_BOARDS` |
 | Applications a day | 1 | 10 | `JAP_FREE_DAILY_APPLICATIONS`, `JAP_PLUS_DAILY_APPLICATIONS` |
-| AI spend a month on JAP's key | $1 | $8 | `JAP_MONTHLY_COST_CAP_USD`, `JAP_PLUS_AI_USD` |
+| AI spend a month on JAP's key | $0 | $0 | `JAP_MONTHLY_COST_CAP_USD` (both plans) |
 
-The admin is on no plan: no company limit, 100 applications a day, and their own AI setting.
+The admin is on no plan: no company limit, 100 applications a day, and AI bounded only by
+the total (`JAP_TOTAL_COST_CAP_USD`) and their own setting.
+
+## Where an account's AI comes from (launch decision D1)
+
+No plan includes AI on JAP's key. An account's AI comes from one of two places, and the
+screens say which (`ai_source`: `own_key`, `jap` or `none`):
+
+1. **Its own OpenRouter key** (below). Used first whenever one is saved.
+2. **Credit the admin grants it**: the "AI credit a month" box in Settings > Accounts, which
+   is the account's `limit_ai_usd`. It is the admin's money on the admin's key.
+
+With neither, `llm.call()` refuses before any model is asked (`NoAiCredit`, a
+`SpendCapReached`), with "This account has no AI credit: add your own OpenRouter key in
+Settings, or ask the admin for credit". Jobs and Settings show a banner saying the same.
+Finding and matching jobs still work: embeddings are local. Reading shared job descriptions
+is the service's own budget, whoever follows the company. Using a person's Claude or
+ChatGPT subscription instead is not done: those terms do not allow it (IDEA-25).
 
 ## How `limits_for` resolves them
 
@@ -51,14 +68,16 @@ it (`billed_to='byok'`) and left out of its allowance, the service budget and th
 key is sealed with AES-GCM under `JAP_SECRET_KEY`, bound to the account; only its last four
 characters are ever shown. The card is hidden while `JAP_SECRET_KEY` is unset.
 
-> **Known problem before launch** (PR 6 load test): 150 free accounts can spend $150 a month
-> plus $5 for descriptions, against a $20 total. Decision D1 in
-> [launch-plan.md](../intent/launch-plan.md).
+The PR 6 load test found 150 accounts at $1 each could spend $155 against a $20 total.
+Since v0.25.0 the worst case is the $5 service budget plus whatever the admin has granted
+(`make load-test` still multiplies accounts by `JAP_MONTHLY_COST_CAP_USD`, now 0).
 
 ## Plus and billing (IDEA-21)
 
-- **Off by default**: `JAP_BILLING_ENABLED=false` means nothing is for sale and there is no
-  Upgrade button.
+- **Off by default**, and staying off until real users have tried JAP (launch decision D3):
+  `JAP_BILLING_ENABLED=false` means nothing is for sale and there is no Upgrade button.
+- **Plus sells companies and applications, not AI.** Its allowance on JAP's key is the same
+  $0 as free; `JAP_PLUS_AI_USD` was removed in v0.25.0.
 - **Checkout is a redirect** to a page Razorpay hosts. No card detail reaches JAP, no payment
   script runs on its pages, the CSP is unchanged, and the subscription carries only the
   account's id.
@@ -78,6 +97,21 @@ characters are ever shown. The card is hidden while `JAP_SECRET_KEY` is unset.
 **Not done**: a merchant of record for outside India; and nothing may be sold until terms,
 privacy and refund pages exist and the seller's tax position is settled. See
 [launch-plan.md](../intent/launch-plan.md), decision D3.
+
+## Automatic mode (launch decision D2)
+
+Automatic mode is the admin's to allow, account by account: `app_user.may_automatic`, off by
+default, switched with "Allow Automatic" in Settings > Accounts
+(`PUT /api/admin/accounts/{id}/automatic`). `automatic_allowed()` in `pipeline/limits.py` is
+the one place that answers it; the admin's own account always may.
+
+- Without it, choosing Automatic is refused (403 `automatic_not_allowed`) and the option is
+  greyed out with "Not open to this account yet".
+- Taking it away puts the account back on Review mode at once. A job already prepared keeps the
+  mode it was prepared in.
+- A job is prepared in Review mode whenever the account is not allowed, whatever its profile
+  says (`flow.create_attempt`), so an old row cannot send on a mode nobody allowed. Migration
+  `0022_launch_switches` moved every non-admin account on Automatic back to Review.
 
 ## Other per-account and service-wide limits on applying
 

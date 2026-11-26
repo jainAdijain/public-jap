@@ -13,7 +13,9 @@ async def test_empty_profile_on_first_read(api: httpx.AsyncClient) -> None:
     assert body["match_rule"] == [["location", "role"]]  # Job title and location fit (U17)
     assert body["remote_any"] is False
     assert body["apply_mode"] == "review"
-    assert body["spend"] == {"month_usd": 0.0, "cap_usd": 1.0, "reached": False}
+    # The admin is on no plan: their AI is bounded by the service's total (launch D1).
+    assert body["spend"] == {"month_usd": 0.0, "cap_usd": 20.0, "reached": False}
+    assert body["ai_source"] == "jap" and body["automatic_allowed"] is True
     # Agreed to nothing yet, so nothing can be sent (S14; test_consent.py has the rest).
     assert body["submit_opt_in"] is False and body["auto_opt_in"] is False
 
