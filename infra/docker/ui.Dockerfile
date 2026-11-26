@@ -2,7 +2,7 @@
 #   dev     (infra/compose.yaml): the Vite dev server with live reload, source bind-mounted.
 #   release (infra/compose.release.yaml, test and prod): the built UI served by Caddy, which
 #           also passes /api to the app, so the browser talks to one address (PRD H2).
-FROM node:22-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /ui
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
