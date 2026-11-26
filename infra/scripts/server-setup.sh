@@ -32,7 +32,8 @@ say() { printf '\n== %s\n' "$1"; }
 say "Packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl git ufw unattended-upgrades
+# age: `make restore KEY=...` decrypts an encrypted dump on the machine running it.
+apt-get install -y -qq age ca-certificates curl git ufw unattended-upgrades
 
 say "Docker"
 if ! command -v docker > /dev/null; then

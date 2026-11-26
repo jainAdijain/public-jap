@@ -140,3 +140,16 @@ jobs:
         env:
           JAP_IMAGE_TAG: v0.0.0
           TUNNEL_TOKEN: placeholder
+      - name: every image the stacks pull exists, for amd64 and arm64
+        # JAP's own images are built by the release and are not checked here. The first
+        # deploy stopped on an Ollama tag that was never published (v0.25.3).
+        run: |
+          set -eu
+          for image in $(grep -hoE '^\s+image: [a-z0-9./_-]+:[A-Za-z0-9._-]+$' infra/compose.yaml infra/compose.release.yaml | awk '{print $2}' | sort -u); do
+            for arch in amd64 arm64; do
+              docker buildx imagetools inspect --raw "$image" | jq -e --arg a "$arch" \
+                '(.manifests // []) | map(.platform.architecture) | index($a)' > /dev/null \
+                || { echo "$image: no $arch image"; exit 1; }
+            done
+            echo "$image: amd64 and arm64"
+          done

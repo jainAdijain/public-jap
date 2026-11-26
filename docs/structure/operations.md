@@ -71,7 +71,17 @@ everything on the machine. Clone to `/srv/public-jap` as the login user instead;
 checkout is live's alone, never the `make vm-sync` mirror, because `make deploy` refuses
 a dirty checkout and checks tags out. live is Docker project `public-jap-live` on ports
 5383 / 8211 / 8491 / 5436, clear of the private JAP's `jap-live` on 5373 / 8201 / 8490 /
-5434: one project name would be one database volume (decision 31).
+5434: one project name would be one database volume (decision 31). Install `age` on it
+(`server-setup.sh` does), since `make restore KEY=...` decrypts where it runs.
+
+**The very first start** has an empty database, and sign-up is open until an admin
+pauses it. Create the admin account (only `JAP_ADMIN_EMAIL` can be the first) over an SSH
+tunnel to the UI port and pause sign-up **before** the public hostname is added.
+
+**Rehearse a release** on a non-live stack before live takes it: a checkout of the tag
+with live's settings but its own project name and ports, `JAP_SUBMIT_ENABLED=false`,
+`JAP_ALERTS_ENABLED=false` and `cloudflared` scaled to 0. v0.25.2 was rehearsed that way
+on the VM (state.md), which is how the missing Ollama tag was found.
 
 `infra/env/live.env` already carries the non-secret live settings: `JAP_SUBMIT_ENABLED`,
 `JAP_COOKIE_SECURE=true`, `JAP_UI_URL`, `CORS_ORIGINS`,
@@ -93,6 +103,12 @@ The third is the only copy that survives losing the hosting account. `make resto
 brings one back. Dumps are encrypted with `age` (`JAP_BACKUP_AGE_RECIPIENT`, public key
 on the server, `make restore KEY=...` with the private one). A backup that has never been
 restored is not a backup: do a restore drill before launch and then on a schedule.
+
+The drill: make an encrypted dump with the app's own `pipeline.backup.run_backup`,
+decrypt it with the private key, load it into a scratch database (`createdb jap_restore`
+in the db container), compare every table's row count with the database it came from,
+check a wrong key is refused, and drop the scratch database. It passed on the v0.25.2
+rehearsal (31 tables identical); on live it is still to do.
 
 ## Monitoring
 

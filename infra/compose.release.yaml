@@ -86,7 +86,9 @@ services:
       options:
         max-size: 50m
         max-file: "5"
-    image: ollama/ollama:0.12.12
+    # 0.12.11: the 0.12.12 this once named was never published, so the first deploy could
+    # not pull it. CI now pulls the manifest of every image the release stack names.
+    image: ollama/ollama:0.12.11
     entrypoint: ["/bin/sh", "/ollama-entrypoint.sh"]
     environment:
       JAP_MODEL_EMBED: ${JAP_MODEL_EMBED:-nomic-embed-text}
