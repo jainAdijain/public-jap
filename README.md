@@ -1,6 +1,6 @@
 # JAP: Job Application Pipeline
 
-**Version 0.25.2 (a first release that can run on the ARM VM, beside the private JAP), 26 Nov 2026.**
+**Version 0.25.3 (what the release rehearsal on the VM found), 26 Nov 2026.**
 
 JAP watches the public job boards of the companies you pick (Greenhouse, Lever and Ashby),
 lists the jobs that match your profile, and prepares or submits applications for you to review.
@@ -622,6 +622,8 @@ JAP's own live stack and several dev stacks. That is why live's project name and
 not the obvious ones (`infra/env/live.env`): two stacks under one Docker project name share
 one database volume. On a shared machine skip `server-setup.sh`, which closes the firewall
 and changes SSH for everything on it, and clone to `/srv/public-jap` by hand instead.
+Install `age` there too (`sudo apt-get install age`): restoring an encrypted dump needs it
+on the machine that runs the restore.
 
 ### The server
 
@@ -664,7 +666,11 @@ not even the UI port needs publishing (H2).
    reported.
 
 4. `make deploy ENV=live TAG=vX.Y.Z` (below), and wait for `/api/health` to come back green
-   on all four checks.
+   on all four checks. Then, over an SSH tunnel to the UI port, create the first account
+   (it can only be `JAP_ADMIN_EMAIL`) and **pause sign-up** in Settings > Accounts. Sign-up
+   is open on a fresh database until you do; that is harmless only while there is no
+   public hostname yet. A `route_stat does not exist` line in the log on this very first
+   start is the request counter flushing before the migrations ran, and does not repeat.
 
 5. Only then add the public hostname in the Cloudflare dashboard: `jap.tutorial.monster` to
    `http://ui:8080`. That is the step that actually puts JAP on the internet, so it goes
@@ -895,6 +901,7 @@ AGENTS.md           the rules for coding agents; CLAUDE.md, .devin/, .claude/, .
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.25.3 | 26 Nov 2026 | What rehearsing v0.25.2 on the VM found. The release stack named `ollama/ollama:0.12.12`, which was never published, so the first deploy could not pull it: now 0.12.11, and CI checks that every image the stacks pull exists for amd64 and arm64. `server-setup.sh` installs `age`, which restoring an encrypted dump on the server needs. README and operations say what to do on the very first start: create the admin account and pause sign-up before the public hostname exists. |
 | 0.25.2 | 26 Nov 2026 | The first release is made for the machine it will really run on (decision 31). The Release workflow builds both images for `linux/amd64` **and** `linux/arm64`, each on a runner of its own architecture, and joins them under one tag, because the first server is an ARM VM. live gets a Docker project and ports of its own (`public-jap-live`, 5383 / 8211 / 8491 / 5436): the old ones were a copy of the private JAP's live stack, which runs on that same VM, and a shared project name would have meant a shared database volume. |
 | 0.25.1 | 26 Nov 2026 | Fix JAP-2: OpenRouter's `403 Key limit exceeded` is now treated as out of credits, so a spent key stops the work without retrying instead of flooding the log. Other 403s stay retryable. |
 | 0.25.0 | 26 Nov 2026 | The launch switches (launch plan stage 2, decisions D1 to D4). **No free AI**: `JAP_MONTHLY_COST_CAP_USD` is 0 and Plus no longer carries $8 of AI (`JAP_PLUS_AI_USD` is gone), so an account's AI runs on its own OpenRouter key or on credit the admin grants it in Settings > Accounts; with neither, no model is called and Jobs and Settings say to add a key or ask (`NoAiCredit`). The admin's own AI is bounded by the total. **Automatic mode is the admin's to allow**, account by account (`app_user.may_automatic`, migration `0022_launch_switches`, which moves other accounts on Automatic back to Review); a job is prepared in Review mode whenever the account is not allowed. **An invite list**: while sign-up is paused, only an address the admin added can sign up, by password or by a Google account that vouches for it, and the invite is used up. Plus stays off until real users have tried JAP. |

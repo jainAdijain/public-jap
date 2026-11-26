@@ -77,7 +77,11 @@ failure is cheap.
       and many accounts it becomes every account's problem. Close JAP-3 if it is obsolete
 - [x] Build the images for arm64 too and give live its own Docker project and ports, so it
       can run on the ARM VM beside the private JAP (v0.25.2, decision 31)
-- [ ] Tag `v0.25.2`, push it, watch the Release workflow push both images to GHCR
+- [x] Tag `v0.25.2`, push it, watch the Release workflow push both images to GHCR (both
+      architectures, 26 Nov 2026)
+- [x] Rehearse the release on the VM as a non-live stack: images pulled, every service
+      healthy, migrations at head, admin then pause, a stranger refused, an encrypted
+      dump restored into a scratch database (v0.25.2; the missing Ollama tag fixed in v0.25.3)
 - [ ] On the server or VM: `server-setup.sh` if not done, a tunnel of the server's own,
       `make env ENV=live`, then the secrets by hand ([operations.md](../structure/operations.md))
 - [ ] Set `JAP_SECRET_KEY` (32 random bytes, base64) in `.env.live`: without it nobody can
