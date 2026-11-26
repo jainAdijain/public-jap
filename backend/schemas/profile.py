@@ -135,6 +135,11 @@ class Plan(BaseModel):
     custom: bool = False  # the admin set at least one of these for this account
 
 
+# Whose money this account's AI runs on (launch decision D1): its own OpenRouter key,
+# credit on JAP's key (the admin's grant, or the admin's own account), or nothing yet.
+AiSource = Literal["own_key", "jap", "none"]
+
+
 class ProfileOut(ProfileIn):
     email: str | None = None  # stored values are returned as saved
     apply_mode: ApplyMode
@@ -144,6 +149,8 @@ class ProfileOut(ProfileIn):
     auto_apply_min_skills: int  # F6: Automatic applies at or above this % of required skills
     spend: Spend
     plan: Plan
+    ai_source: AiSource = "none"
+    automatic_allowed: bool = False  # the admin lets this account use Automatic (D2)
     # Consent (S14): JAP may apply in my name, and may do it without asking.
     submit_opt_in: bool = False
     auto_opt_in: bool = False

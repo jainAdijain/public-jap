@@ -77,6 +77,8 @@ class AuthState(BaseModel):
 
     has_accounts: bool
     sign_up_open: bool  # False while the admin has sign-up paused (S12)
+    # Paused, but the admin has invited someone (D4): the form stays, for the invited only.
+    sign_up_by_invite: bool = False
     user: UserOut | None
     two_step_pending: bool
     turnstile_site_key: str = ""  # set: the page shows the "prove you're human" check

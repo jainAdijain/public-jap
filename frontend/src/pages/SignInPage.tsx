@@ -423,6 +423,13 @@ export default function SignInPage({ state, onSignedIn }: { state: AuthState; on
           <button type="button" className="btn-link" onClick={() => go('create')}>
             Create an account
           </button>
+        ) : state.sign_up_by_invite ? (
+          <>
+            <p className="muted small">New accounts are by invitation for now.</p>
+            <button type="button" className="btn-link" onClick={() => go('create')}>
+              I was invited: create an account
+            </button>
+          </>
         ) : (
           <p className="muted small">New accounts are paused for now.</p>
         )}

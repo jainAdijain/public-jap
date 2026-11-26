@@ -395,6 +395,50 @@ function Health() {
 
 const ACCOUNT_STATE = { active: 'Active', unverified: 'Email not confirmed', off: 'Turned off' }
 
+/** Whose money an account's AI runs on, in the admin's list (launch decision D1). */
+function aiWords(a: Account): string {
+  if (a.ai_source === 'own_key') return 'AI on their own key'
+  if (a.ai_source === 'none') return 'No AI yet: no key, no credit'
+  return `AI credit ${money(a.spend.month_usd)} of ${money(a.spend.cap_usd)} used`
+}
+
+/** Who may sign up while sign-up is paused (launch decision D4). Nothing is emailed: you
+ *  tell the person, who signs up with that address, or with Google on it. */
+function InviteList({ data, act }: { data: Accounts; act: (fn: () => Promise<Accounts>, done: string) => Promise<void> }) {
+  const [email, setEmail] = useState('')
+  return (
+    <div className="invites">
+      <form
+        className="inline"
+        onSubmit={(e) => {
+          e.preventDefault()
+          const address = email.trim()
+          if (address) void act(() => admin.invite(address), `${address} may sign up now. Tell them to use that address.`).then(() => setEmail(''))
+        }}
+      >
+        <label className="inline">
+          Invite
+          <input type="email" placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </label>
+        <button type="submit" className="btn-primary">
+          Add
+        </button>
+      </form>
+      <span className="muted small">
+        {data.sign_up_paused ? 'While sign-up is paused, only these addresses can create an account. Each leaves the list once it has one.' : 'Sign-up is open, so anyone can create an account; this list matters once you pause it.'}
+      </span>
+      {data.invites.map((address) => (
+        <span key={address} className="inline">
+          <span className="mono">{address}</span>
+          <button type="button" className="btn-link" onClick={() => void act(() => admin.uninvite(address), `${address} is off the invite list.`)}>
+            Remove
+          </button>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 /** One account's limits, for the admin to change (S12). An empty box means the plan's number. */
 function LimitsForm({ account, save, close }: { account: Account; save: (l: { ai_usd: number | null; boards: number | null; applications_per_day: number | null }) => Promise<void>; close: () => void }) {
   const p = account.plan
@@ -418,14 +462,14 @@ function LimitsForm({ account, save, close }: { account: Account; save: (l: { ai
     >
       {box('Companies', boards, setBoards, 10000, 1)}
       {box('Applications a day', sends, setSends, 100, 1)}
-      {box('AI a month ($)', ai, setAi, 1000, 0.5)}
+      {box('AI credit a month ($)', ai, setAi, 1000, 0.5)}
       <button type="submit" className="btn-primary">
         Save
       </button>
       <button type="button" className="btn-link" onClick={close}>
         Cancel
       </button>
-      <span className="muted small">Leave a box empty for the plan's own number.</span>
+      <span className="muted small">Leave a box empty for the plan's own number. AI credit is your money, on your key: the plans include none.</span>
     </form>
   )
 }
@@ -748,6 +792,7 @@ function AccountsCard() {
               />
               Anyone can create an account
             </label>
+            <InviteList data={data} act={act} />
             <span className="muted small">
               AI this month: <span className="mono">{money(data.spend_total.month_usd)}</span> of <span className="mono">{money(data.spend_total.cap_usd)}</span> in all, of which{' '}
               <span className="mono">{money(data.spend_shared.month_usd)}</span> of <span className="mono">{money(data.spend_shared.cap_usd)}</span> for reading job descriptions, which everyone shares.
@@ -761,14 +806,23 @@ function AccountsCard() {
                     {a.is_admin && <span className="muted"> · admin</span>}
                   </b>
                   <span className="hd muted">
-                    {ACCOUNT_STATE[a.state]} · joined {when(a.joined_at)} · {a.last_sign_in_at ? `last signed in ${when(a.last_sign_in_at)}` : 'never signed in'} · AI{' '}
-                    {money(a.spend.month_usd)} of {money(a.spend.cap_usd)} · {a.plan.custom ? 'Limits set by you' : `${a.plan.name} plan`}: {planWords(a.plan)}
+                    {ACCOUNT_STATE[a.state]} · joined {when(a.joined_at)} · {a.last_sign_in_at ? `last signed in ${when(a.last_sign_in_at)}` : 'never signed in'} · {aiWords(a)} · {a.plan.custom ? 'Limits set by you' : `${a.plan.name} plan`}: {planWords(a.plan)} · {a.may_automatic ? 'may use Automatic' : 'Review mode only'}
                   </span>
                   <button type="button" className="btn-link" onClick={() => setEditing(editing === a.id ? null : a.id)}>
                     Limits
                   </button>
                   {editing === a.id && (
                     <LimitsForm account={a} close={() => setEditing(null)} save={(l) => act(() => admin.setLimits(a.id, l), `Limits saved for ${a.email}.`)} />
+                  )}
+                  {!a.is_admin && (
+                    <button
+                      type="button"
+                      className="btn-link"
+                      title="Automatic mode sends applications without the person seeing them first."
+                      onClick={() => act(() => admin.setAutomatic(a.id, !a.may_automatic), a.may_automatic ? `${a.email} is back on Review mode.` : `${a.email} may now use Automatic mode.`)}
+                    >
+                      {a.may_automatic ? 'Stop Automatic' : 'Allow Automatic'}
+                    </button>
                   )}
                   {!a.is_admin &&
                     (a.state === 'off' ? (
@@ -896,6 +950,7 @@ export default function SettingsPage() {
                 type="radio"
                 name="mode"
                 checked={automatic}
+                disabled={!profile.automatic_allowed}
                 onChange={() => {
                   // Sending without showing you first is its own agreement (S14).
                   if (!profile.auto_opt_in) setAskAuto(true)
@@ -905,7 +960,11 @@ export default function SettingsPage() {
               <span>
                 <b>JAP applies for me</b>
               </span>
-              <span className="d">Forms with nothing unclear are sent, at least 30 seconds apart. Jobs with questions, or no work mode stated, wait for you.</span>
+              <span className="d">
+                {profile.automatic_allowed
+                  ? 'Forms with nothing unclear are sent, at least 30 seconds apart. Jobs with questions, or no work mode stated, wait for you.'
+                  : 'Not open to this account yet: the admin turns it on account by account.'}
+              </span>
               {automatic && (
                 <span className="more">
                   <span className="inline">
@@ -1075,7 +1134,11 @@ export default function SettingsPage() {
             <span style={{ width: `${pct}%` }} />
           </div>
           <span className={spend.reached ? 'error-text small' : 'muted small'}>
-            {spend.reached
+            {profile.ai_source === 'own_key'
+              ? 'Your AI runs on your own OpenRouter key, below, and is billed to you there. The limit above counts only credit on JAP’s key.'
+              : profile.ai_source === 'none'
+                ? 'No AI yet: add your own OpenRouter key below, or ask the admin for credit. Until then JAP finds and matches jobs, but cannot read your resume or write answers and cover letters.'
+                : spend.reached
               ? 'Limit reached: JAP has stopped writing answers and cover letters for you until next month. Finding jobs carries on.'
               : user.is_admin
                 ? 'When the limit is reached, JAP stops writing answers and letters for you until next month, and a banner shows on Jobs.'

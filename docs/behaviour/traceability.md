@@ -22,6 +22,7 @@ live in `backend/tests/`.
 | AUTH-8 Session on every route but the open set | `backend/main.py`, `backend/auth/deps.py` | `test_auth.py::test_every_route_but_health_and_sign_in_needs_a_session`, `test_auth.py::test_file_links_need_a_session` | Proved |
 | AUTH-9 Cross-site writes refused | `backend/auth/` (guards) | `test_auth.py::test_requests_from_other_sites_are_refused`, `test_auth.py::test_a_write_from_another_site_without_an_origin_is_refused` | Proved |
 | AUTH-10 Pause sign-up, turn an account off | `backend/api/admin.py` | `test_sign_up.py::test_admin_pauses_sign_up_and_turns_an_account_off`, `test_sign_up.py::test_a_turned_off_account_stops_searching`, `test_auth.py::test_a_turned_off_account_cannot_sign_in` | Proved |
+| AUTH-11 Invite list while paused | `backend/auth/accounts.py`, `backend/api/auth.py`, `backend/api/admin.py` | `test_sign_up.py::test_while_paused_only_an_invited_address_may_sign_up`, `test_google.py::test_google_signs_up_an_invited_address_while_paused_once_it_vouches_for_it`, `test_launch_switches.py::test_the_invite_list_is_the_admins_and_refuses_an_address_with_an_account` | Proved |
 
 ## One user's data kept from another's
 
@@ -85,6 +86,7 @@ live in `backend/tests/`.
 | APPLY-5 Cover letter only when required | `backend/pipeline/cover_letter.py` | `test_cover_letter.py::test_mandatory_letter_is_written_checked_and_signed_locally`, `test_cover_letter.py::test_optional_letter_and_no_field_get_no_letter`, `test_cover_letter.py::test_an_untrue_claim_regenerates_once` | Proved |
 | APPLY-6 Pacing | `backend/pipeline/apply/flow.py` | `test_apply.py::test_cap_and_gap`, `test_pacing.py::test_a_gap_is_kept_between_two_applications_to_one_site`, `test_pacing.py::test_the_service_stops_at_its_own_daily_ceiling`, `test_pacing.py::test_a_paused_account_sends_nothing` | Proved |
 | APPLY-7 One browser per account | `backend/functions/apply_listing.py` | `test_pacing.py::test_applying_is_one_browser_per_user_under_a_service_ceiling` | Proved |
+| APPLY-8 Automatic only where the admin allows | `backend/pipeline/limits.py`, `backend/pipeline/apply/flow.py`, `backend/api/admin.py` | `test_launch_switches.py::test_automatic_mode_is_the_admins_to_allow_account_by_account`, `test_apply.py::test_automatic_mode_without_the_admins_say_so_prepares_in_review` | Proved |
 
 ## Limits, AI budgets and paying
 
@@ -95,6 +97,7 @@ live in `backend/tests/`.
 | BILL-3 Your own key | `backend/llm/secrets.py` | `test_byok.py::test_a_sealed_key_opens_only_for_its_owner`, `test_byok.py::test_the_hint_is_only_the_last_four`, `test_byok.py::test_my_own_key_is_used_and_billed_to_me_not_to_jap` | Proved |
 | BILL-4 Signed webhook, once, never backwards | `backend/api/webhooks.py`, `backend/billing/service.py` | `test_billing.py::test_an_unsigned_webhook_is_not_found_and_changes_nothing`, `test_billing.py::test_the_same_delivery_twice_is_handled_once`, `test_billing.py::test_a_webhook_that_arrives_late_does_not_undo_a_newer_one`, `test_billing.py::test_the_webhook_is_off_when_no_provider_is_configured` | Proved; never run against Razorpay |
 | BILL-5 Checkout and grace | `backend/api/billing.py` | `test_billing.py::test_checkout_sends_the_browser_to_the_providers_page`, `test_billing.py::test_checkout_is_refused_while_the_service_is_not_selling`, `test_billing.py::test_a_failed_renewal_keeps_the_plan_to_the_end_of_the_period` | Proved |
+| BILL-6 No AI on JAP's key without a grant | `backend/pipeline/limits.py`, `backend/llm/call.py` | `test_launch_switches.py::test_a_new_account_gets_no_ai_on_japs_key_until_the_admin_grants_it`, `test_launch_switches.py::test_an_accounts_own_key_works_with_no_grant`, `test_launch_switches.py::test_no_plan_includes_ai_on_japs_key` | Proved |
 
 ## Running it
 

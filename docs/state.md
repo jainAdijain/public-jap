@@ -14,17 +14,27 @@ or down; dependencies locked and hashed (`make lock`, `cryptography` 50); and pi
 audit, gitleaks, Trivy and Dependabot in CI, with the image patched and shipped without pip so
 the scan starts green.
 
+v0.25.0 (branch `claude/project-thread-uyba95`, not merged yet) builds Aditya's stage 2 launch
+decisions ([launch-plan.md](intent/launch-plan.md), [decisions.md](intent/decisions.md) 27 to
+30): **no free AI** (`JAP_MONTHLY_COST_CAP_USD` 0, Plus without its $8; an account's AI is its
+own OpenRouter key or credit the admin grants it, and with neither no model is called and the
+screens say so), **Automatic mode per account** at the admin's say-so (`0022_launch_switches`),
+an **invite list** that lets named addresses sign up while sign-up is paused, and Plus kept off
+until real users have tried JAP. New requirements AUTH-11, APPLY-8 and BILL-6, all Proved.
+
 ## In flight
 
 Every session updates this before it stops: branch, done, half done, next step, blockers.
 
-Branch `claude/project-thread-ffjekk`: the four operator facts are filled in
-(`frontend/src/legal.ts`: Aditya; Rajasthan, India; privacy@tutorial.monster; India), and
-`security.txt` carries the same contact, so the terms and notice no longer show the draft
-banner. `TERMS_VERSION` is deliberately not raised: the launch plan raises it once, after
-Aditya has read the final wording. privacy@tutorial.monster receives mail (an alias on the domain's
-mailbox, tested). Still open, all Aditya's: a full postal address before Plus is sold, and the AI-budget decision
-([launch-plan.md](intent/launch-plan.md) stage 1).
+Branch `claude/project-thread-uyba95` (v0.25.0, the launch switches): built, tested and in a
+pull request for Aditya to review. Not looked at in a browser: the new Settings > Accounts
+controls (Allow Automatic, Invite, the AI column), the "No AI yet" banner on Jobs and the
+"by invitation" line on the sign-in screen. Next: merge, then stage 3 of the launch plan (fix
+JAP-2, tag, deploy with `JAP_SECRET_KEY` and `JAP_DAILY_APPLICATIONS_TOTAL=50` set, test a
+restore). Still Aditya's: read the final terms wording so `TERMS_VERSION` can be raised once
+(the notice gained one line in v0.25.0, about the invite list), and move the PRD files into
+`docs/intent/sources/`. Plus's prerequisites (postal address, refund page, GST, Razorpay live)
+wait until he decides to sell it.
 
 ## Never verified for real
 
@@ -60,15 +70,16 @@ From [bugs.md](bugs.md) (read it for the write-ups):
 
 ## Open ideas that touch the launch
 
-IDEA-9 (invites), IDEA-18 (outbound address per user, seam only), IDEA-20 (whether Automatic
-mode is offered to the public), IDEA-22 (browser extension), IDEA-23 (launch review, part built in v0.24.0),
+IDEA-9 (invites, part built in v0.25.0), IDEA-18 (outbound address per user, seam only), IDEA-20
+(Automatic mode, decided for the launch), IDEA-25 (a person's own AI subscription), IDEA-26
+(AI credit a person can buy), IDEA-22 (browser extension), IDEA-23 (launch review, part built in v0.24.0),
 IDEA-24 (Devin cloud blueprint). See [ideas.md](ideas.md).
 
 ## Drift between documents
 
 - **The PRD is behind the code** on three points (recorded in PR 2): Google sign-in is built
-  (PRD: not now), sign-up is open (PRD: invite-only at first), the free AI allowance is $1
-  (PRD: $2). Phase 2 to 5 ids (`S14`, `S15`, `S16`, `T6`, `U22`) were proposed in PR 2 and
+  (PRD: not now), sign-up is open with an invite list for while it is paused (PRD:
+  invite-only at first), and since v0.25.0 there is no free AI allowance at all (PRD: $2). Phase 2 to 5 ids (`S14`, `S15`, `S16`, `T6`, `U22`) were proposed in PR 2 and
   paid plans have no PRD id yet (cited as IDEA-21).
 - **`AGENTS.md`** used to say new routers go in the `current_user` loop; the code's loop uses
   `agreed_user` (signed in and agreed to the current notice). Corrected with this folder.

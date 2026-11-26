@@ -31,14 +31,16 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://host.docker.internal:11434"
 
     # AI spend a month (PRD S12): each user's allowance, the service's own budget for
-    # reading shared job postings, and the limit on everything together.
-    jap_monthly_cost_cap_usd: float = 1.0
+    # reading shared job postings, and the limit on everything together. The allowance is
+    # $0 by default (launch decision D1): an account's AI runs on its own OpenRouter key, or
+    # on credit the admin grants it in Settings > Accounts. Neither plan includes any.
+    jap_monthly_cost_cap_usd: float = 0.0
     jap_system_cost_cap_usd: float = 5.0
     jap_total_cost_cap_usd: float = 20.0
     # The free plan (pipeline/limits.py): companies one account may follow, and applications
     # it may send a day. The admin is not held to either, and can set any one account's own
-    # numbers in Settings > Accounts. The AI allowance above is sized to go with them: an
-    # application costs about 2 to 3 cents of AI, so one a day is under $1 a month.
+    # numbers in Settings > Accounts. An application costs about 2 to 3 cents of AI, so $1
+    # of credit covers about one a day for a month.
     jap_free_boards: int = 1
     jap_free_daily_applications: int = 1
     # The master key that seals a user's own OpenRouter key (IDEA-19, llm/secrets.py):
@@ -46,12 +48,11 @@ class Settings(BaseSettings):
     # loses every saved key, and users paste theirs again.
     jap_secret_key: str = ""
 
-    # The Plus plan (IDEA-21), the one thing that is sold. Its AI allowance is sized well
-    # above what its applications can spend, because it is a guard against a runaway and
-    # not the thing being bought (pipeline/limits.py). The prices are for display only: the
-    # amount actually charged is the one set on the plan at the payment provider, and the
-    # two have to be kept in step by hand.
-    jap_plus_ai_usd: float = 8.0
+    # The Plus plan (IDEA-21), the one thing that is sold: more companies and applications,
+    # and no AI on JAP's key (launch decision D1; the AI is the user's own key or the
+    # admin's grant, on any plan). The prices are for display only: the amount actually
+    # charged is the one set on the plan at the payment provider, and the two have to be
+    # kept in step by hand.
     jap_plus_boards: int = 10
     jap_plus_daily_applications: int = 10
     jap_plus_price_inr: int = 499

@@ -245,6 +245,23 @@ async def test_google_cannot_take_an_account_that_is_off_or_sign_up_while_paused
         assert (await visitor.get("/api/auth/me")).status_code == 401
 
 
+async def test_google_signs_up_an_invited_address_while_paused_once_it_vouches_for_it(
+    google: dict[str, Any], api: httpx.AsyncClient
+) -> None:
+    """An invite is for an address (launch decision D4), so Google must say the address is
+    really theirs before it lets anyone in; the invite is then used up."""
+    await api.put("/api/admin/sign-up", json={"paused": True})
+    await api.post("/api/admin/invites", json={"email": "friend@example.com"})
+    async with _client() as visitor:
+        shaky = await _dance(visitor, google, email="friend@example.com", email_verified=False)
+        assert _outcome(shaky) == "sign_up_closed"
+    async with _client() as visitor:
+        sure = await _dance(visitor, google, email="friend@example.com", sub="friend-sub")
+        assert _outcome(sure) != "sign_up_closed"
+        assert (await visitor.get("/api/auth/me")).json()["email"] == "friend@example.com"
+    assert (await api.get("/api/admin/accounts")).json()["invites"] == []
+
+
 async def test_one_google_account_cannot_be_on_two_jap_accounts(
     google: dict[str, Any], api: httpx.AsyncClient, other: httpx.AsyncClient
 ) -> None:

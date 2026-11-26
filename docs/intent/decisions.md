@@ -35,12 +35,12 @@ reasoning usually sits in the PR, `README.md` version history or [ideas.md](../i
 | 25 | Versions come from git tags only; two environments, dev (local) and prod (live); 1.0.0 is the first public launch | one place for the number ends the forgotten fourth file and the clash between parallel branches; a tag is already the release (16) | OPS-5, [plan.md](plan.md) Phase 6 |
 | 26 | `docs/` follows the project docs framework: intent, structure, behaviour, requirement ids by area, one open phase, a drift check in CI | any harness can pick the work up; code, tests and docs can be checked against each other | `AGENTS.md`, `infra/scripts/check_docs.py` |
 
+| 27 | No free AI: an account's AI runs on its own OpenRouter key or on credit the admin grants it (D1) | 150 free accounts at $1 could spend $155 against a $20 cap; this way the bill is only what the admin chose to give. Signing in with a user's Claude or ChatGPT subscription was ruled out: those terms do not allow a third-party service to use them | v0.25.0, `pipeline/limits.py`, IDEA-25 |
+| 28 | Automatic mode is the admin's to allow, account by account; everyone else is on Review (D2) | one server address for everyone: one account's automatic run getting JAP flagged (Ashby has bot detection) costs every account that site; a wrong submission cannot be taken back | v0.25.0, IDEA-20 |
+| 29 | Plus stays off until real users have tried JAP; when it comes back it sells companies and applications, not AI (D3) | Razorpay activation, a postal address, a refund page and the tax position are all still to do, and nobody yet knows whether 1 and 1 a day is too little | v0.25.0, IDEA-21 |
+| 30 | The soft launch admits people by an invite list while sign-up stays paused (D4); this replaces decision 4's open sign-up for now | a leaked link lets nobody in, unlike opening sign-up for a window; the same per-account control as D1 and D2 | v0.25.0, IDEA-9 |
 ## Open (owner's call)
 
 | # | Question | Notes | Where |
 | --- | --- | --- | --- |
-| D1 | How the AI budget fits the number of free accounts | $155/month of free allowances at 150 accounts vs a $20 total cap | [launch-plan.md](launch-plan.md) |
-| D2 | Is Automatic mode offered to the public? | job-site terms and bot detection; Review mode is human-in-the-loop | IDEA-20 |
-| D3 | Selling Plus: when, and with whom outside India | terms, refund page, tax position; merchant of record not chosen | IDEA-21 |
-| D4 | Invites, or open sign-up with a pause switch | how the soft launch admits a fixed group | IDEA-9 |
 | D5 | The operator facts and legal wording of the notice | name, postal address, contact, governing law | PR 6, `frontend/src/legal.ts` |

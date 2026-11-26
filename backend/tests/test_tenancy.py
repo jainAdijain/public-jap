@@ -212,6 +212,7 @@ async def test_another_users_ids_answer_not_found_on_every_route(
         ("POST", f"/api/admin/accounts/{NOBODY}/off", None),
         ("POST", f"/api/admin/accounts/{NOBODY}/on", None),
         ("PUT", f"/api/admin/accounts/{NOBODY}/limits", {"ai_usd": 100}),
+        ("PUT", f"/api/admin/accounts/{NOBODY}/automatic", {"allowed": True}),
         ("DELETE", f"/api/admin/accounts/{NOBODY}", None),
     ]
     from main import app
@@ -460,18 +461,20 @@ async def test_the_free_plan_caps_companies_followed(
 async def test_the_admin_sets_one_accounts_limits(
     api: httpx.AsyncClient, other: httpx.AsyncClient, other_id: uuid.UUID
 ) -> None:
-    """The free plan is 1 company, 1 application a day and $1 of AI a month. The admin can
-    give any one account its own numbers, and put it back on the plan."""
+    """The free plan is 1 company, 1 application a day and no AI on JAP's key (launch D1).
+    The admin can give any one account its own numbers, credit included, and put it back
+    on the plan."""
     plan = (await other.get("/api/profile")).json()
     free = {
         "name": "Free",
         "code": "free",
         "boards": 1,
         "applications_per_day": 1,
-        "ai_usd": 1.0,
+        "ai_usd": 0.0,
         "custom": False,
     }
-    assert plan["plan"] == free and plan["daily_cap"] == 1 and plan["spend"]["cap_usd"] == 1.0
+    assert plan["plan"] == free and plan["daily_cap"] == 1 and plan["spend"]["cap_usd"] == 0.0
+    assert plan["ai_source"] == "none"
     board = {"ats": "lever", "board_token": "one", "display_name": "One"}
     assert (await other.post("/api/boards", json=board)).status_code == 201
     second = await other.post("/api/boards", json={**board, "board_token": "two"})
@@ -496,6 +499,7 @@ async def test_the_admin_sets_one_accounts_limits(
     }
     mine_now = (await other.get("/api/profile")).json()
     assert mine_now["plan"]["custom"] is True and mine_now["spend"]["cap_usd"] == 7.5
+    assert mine_now["ai_source"] == "jap" and account["ai_source"] == "jap"
     assert mine_now["daily_cap"] == 10  # the 50 they typed, held to the new limit
     assert (
         await other.post("/api/boards", json={**board, "board_token": "two"})
@@ -527,6 +531,7 @@ async def test_one_user_at_their_limit_stops_only_them(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:  # fmt: skip
     monkeypatch.setattr(client, "chat", Stub([GOOD] * 6, cost=2.5))
+    await api.put(f"/api/admin/accounts/{other_id}/limits", json={"ai_usd": 1})  # a grant
     await _parse(other_id)  # $2.50 against a $1 allowance
     with pytest.raises(SpendCapReached, match=r"\$2.50 of \$1.00"):
         await _parse(other_id)

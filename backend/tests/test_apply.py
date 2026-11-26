@@ -703,3 +703,28 @@ async def test_out_of_credits_asks_the_model_once_per_form(
     assert row is not None
     assert [q["key"] for q in row[0]] == ["why", "proud"]
     assert all("out of credits" in q["reason"] for q in row[0])
+
+
+async def test_automatic_mode_without_the_admins_say_so_prepares_in_review(
+    setup: dict[str, Any], sql: psycopg.Connection[Any]
+) -> None:
+    """Mode is fixed when a job is prepared, and Automatic needs the admin to have allowed
+    the account (launch decision D2). A profile left on Automatic without that, as an older
+    row could be, is prepared in Review mode and waits for the person."""
+    sql.execute("UPDATE profile SET apply_mode = 'automatic'")
+    sql.execute("UPDATE app_user SET is_admin = false, may_automatic = false")
+    async with get_sessionmaker()() as session:
+        held = await flow.create_attempt(session, setup["listing"], None)
+        await session.commit()
+    assert sql.execute("SELECT mode::text FROM application WHERE id = %s", (held,)).fetchone() == (
+        "review",
+    )
+    sql.execute("DELETE FROM application")
+    sql.execute("UPDATE user_listing SET status = 'not_applied'")
+    sql.execute("UPDATE app_user SET may_automatic = true")
+    async with get_sessionmaker()() as session:
+        sent = await flow.create_attempt(session, setup["listing"], None)
+        await session.commit()
+    assert sql.execute("SELECT mode::text FROM application WHERE id = %s", (sent,)).fetchone() == (
+        "automatic",
+    )

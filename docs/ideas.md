@@ -24,7 +24,7 @@ limits, is built on the `tenancy` branch and is not listed.
 | [IDEA-6](#idea-6--consent-before-jap-acts-for-a-user) | 2 | Built (v0.20.0) | Consent before JAP acts for a user |
 | [IDEA-7](#idea-7--a-privacy-notice-at-sign-up) | 2 | Built (v0.20.0) | A privacy notice at sign-up |
 | [IDEA-8](#idea-8--a-your-plan-line-in-settings) | 1 follow-up | Built (v0.19.0) | A "Your plan" line in Settings |
-| [IDEA-9](#idea-9--invites) | - | Open | Invites |
+| [IDEA-9](#idea-9--invites) | 6 | Part built (v0.25.0) | Invites |
 | [IDEA-10](#idea-10--an-always-on-server-instead-of-the-mac) | 3 | Built (v0.21.0) | An always-on server instead of the Mac |
 | [IDEA-11](#idea-11--encrypted-off-site-backups) | 3 | Built (v0.24.0) | Encrypted off-site backups |
 | [IDEA-12](#idea-12--no-adminer-and-no-user-content-for-the-admin-on-the-public-stack) | 3 | Built (v0.21.0) | No Adminer, and no user content for the admin, on the public stack |
@@ -35,11 +35,13 @@ limits, is built on the `tenancy` branch and is not listed.
 | [IDEA-17](#idea-17--pacing-for-submissions-across-all-users) | 4 | Built (v0.22.0) | Pacing for submissions across all users |
 | [IDEA-18](#idea-18--an-outbound-address-for-each-user) | 4 | Part built (v0.22.0) | An outbound address for each user |
 | [IDEA-19](#idea-19--bring-your-own-openrouter-key) | 4 | Built (v0.22.0) | Bring your own OpenRouter key |
-| [IDEA-20](#idea-20--a-decision-on-job-site-blocking-and-terms-of-use) | 4 | Open | A decision on job-site blocking and terms of use |
+| [IDEA-20](#idea-20--a-decision-on-job-site-blocking-and-terms-of-use) | 4 | Decided for the launch (v0.25.0) | A decision on job-site blocking and terms of use |
 | [IDEA-21](#idea-21--paid-plans) | 5 | Built (v0.23.0) | Paid plans |
 | [IDEA-22](#idea-22--a-browser-extension-that-submits-from-the-users-own-machine) | 5 | Open | A browser extension that submits from the user's own machine |
 | [IDEA-23](#idea-23--the-public-launch-review) | 6 | Part built (v0.24.0) | The public launch review |
 | [IDEA-24](#idea-24--a-devin-cloud-blueprint-and-the-untested-setup-path) | - | Open | A Devin cloud blueprint, and the untested setup path |
+| [IDEA-25](#idea-25--using-a-persons-own-ai-subscription) | 5 | Open | Using a person's own AI subscription |
+| [IDEA-26](#idea-26--ai-credit-a-person-can-buy) | 6 | Open | AI credit a person can buy |
 
 ---
 
@@ -120,6 +122,10 @@ Files: `frontend/src/pages/SettingsPage.tsx`, `backend/api/boards.py`.
 Sign-up by invitation only, to control exactly who gets in. Left out for now because the admin
 can already pause sign-up and turn an account off; worth building if strangers start finding
 the address.
+
+**Part built in v0.25.0** (launch decision D4): an invite list in Settings > Accounts. While
+sign-up is paused only a listed address can create an account, and the invite is used up. What
+is not built: an emailed invite link, invites a user can hand on, or an expiry.
 
 ## IDEA-10 — An always-on server instead of the Mac
 
@@ -303,6 +309,10 @@ Read on 21 Nov 2026, and none of it is legal advice:
 What is left to decide: whether Automatic mode is offered to the public at all, and what
 the terms page says JAP does on someone's behalf. Nothing in the code is waiting on it.
 
+**Decided for the launch** (26 Nov 2026, decision 28, v0.25.0): Review mode for everyone, and
+Automatic only for accounts the admin allows one by one. Whether it opens to the public is
+decided later from the per-site refusal rates.
+
 ## IDEA-21 — Paid plans
 
 **Status:** Built (v0.23.0). Recorded 17 Nov 2026, from the public-jap plan (Phase 5).
@@ -366,3 +376,28 @@ pair of eyes. The checklist is in README (Before going public).
 A Devin cloud blueprint that runs `infra/scripts/agent-setup.sh`, so a cloud session starts with
 the checks working. The apt path in that script, for a sandbox without Docker, has not run
 anywhere; the Docker path and the `JAP_HOST_DATABASE_URL` path have.
+
+## IDEA-25 — Using a person's own AI subscription
+
+**Status:** Open. Recorded 26 Nov 2026, from the launch decisions (D1).
+
+Some people pay for Claude, ChatGPT or a coding harness already, and would rather JAP's AI ran
+on that than on an API key. Ruled out on the server for the launch: those subscriptions are for
+the person's own use in the provider's apps, and their terms do not let a third-party service
+sign in with them and run requests, so the person's account could be closed and JAP would be
+the one breaking the terms.
+
+What is known about doing it properly: the work would have to run where the person already
+uses the subscription, on their own machine, which is the same shape as the browser extension
+(IDEA-22). Still to decide: whether any provider offers a sanctioned way for an app to use a
+person's subscription, and whether that is worth the work next to "paste an OpenRouter key".
+
+## IDEA-26 — AI credit a person can buy
+
+**Status:** Open. Recorded 26 Nov 2026, from the launch decisions (D1, D3).
+
+Since v0.25.0 an account with no key of its own gets AI only when the admin grants credit by
+hand. A credit pack (for example $5 of AI) bought through the same provider as Plus would make
+that self-serve. Priced at about 1.3 to 1.5 times OpenRouter's cost, to cover fees and failed
+calls. Needs Plus's prerequisites first (Razorpay live, a refund page, the tax position), and a
+way to add bought credit to `limit_ai_usd` or beside it without the admin's grant being lost.

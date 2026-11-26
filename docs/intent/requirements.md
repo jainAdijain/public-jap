@@ -32,6 +32,7 @@ matching and searches, `APPLY` applying, `BILL` limits, AI budgets and paying, `
 | AUTH-8 | Every `/api` route needs a session except a listed open set, and adding to that set is a decision | AGENTS.md | 0 | security |
 | AUTH-9 | A write that began on another site is refused | IDEA-13 | 3 | security |
 | AUTH-10 | The admin can pause sign-up and turn an account off; a turned-off account cannot sign in and its work stops | PRD 1.18 | 1 | feature |
+| AUTH-11 | While sign-up is paused, only an address on the admin's invite list can create an account, by password or by Google (which must vouch for the address); the invite is used up | launch D4, IDEA-9 | 6 | feature |
 
 ## One user's data kept from another's
 
@@ -95,6 +96,7 @@ matching and searches, `APPLY` applying, `BILL` limits, AI budgets and paying, `
 | APPLY-5 | A cover letter is written only when the form requires one, claim-checked against the resume | v0.8.0 | 0 | feature |
 | APPLY-6 | Submissions are paced: a daily cap and gap per account, a gap per job site across everyone, a service-wide daily ceiling, and Pause sending | IDEA-17 | 4 | performance |
 | APPLY-7 | Applications run side by side, one browser per account under a service ceiling | IDEA-15 | 4 | performance |
+| APPLY-8 | Automatic mode is the admin's to allow, account by account; without it the account is held to Review mode, and a job is prepared in Review mode whatever the profile says | launch D2, IDEA-20 | 6 | security |
 
 ## Limits, AI budgets and paying
 
@@ -105,6 +107,7 @@ matching and searches, `APPLY` applying, `BILL` limits, AI budgets and paying, `
 | BILL-3 | An account's own OpenRouter key is sealed to it, shown only by its last four characters, and its work is billed to it | IDEA-19 | 4 | feature |
 | BILL-4 | The payment webhook trusts only a signature over the raw body, applies each delivery once and never backwards, and is 404 with no provider | IDEA-21 | 5a | security |
 | BILL-5 | Checkout is a redirect to the provider's page, refused while not selling; a failed renewal keeps the plan to period end plus grace | IDEA-21 | 5a | feature |
+| BILL-6 | No plan includes AI on JAP's key: an account's AI runs on its own key or on credit the admin grants it, and with neither the model is never called and the person is told what to do | launch D1 | 6 | cost |
 
 ## Running it
 

@@ -1,5 +1,6 @@
 """GET, PUT and PATCH /api/profile (U7 to U10): the signed-in user's own profile (S7)."""
 
+import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -16,11 +17,12 @@ from functions.events import send
 from llm import secrets
 from llm.spend import month_spend
 from pipeline.apply import security_code
-from pipeline.limits import Limits, limits_for
+from pipeline.limits import Limits, automatic_allowed, limits_for
 from pipeline.matching import Criteria, preview_counts, refilter
 from pipeline.resume import normalize_skills, skill_aliases
 from pipeline.workspace import load_profile
 from schemas.profile import (
+    AiSource,
     ApiKey,
     CodeAddress,
     MatchPreview,
@@ -63,6 +65,17 @@ def plan_out(limits: Limits) -> Plan:
     )
 
 
+NOT_ALLOWED_AUTO = "Automatic mode isn't open to this account yet. Ask the admin to turn it on"
+
+
+async def ai_source(session: AsyncSession, user_id: uuid.UUID, limits: Limits) -> AiSource:
+    """Whose money this account's AI runs on (launch decision D1). Its own key wins, as
+    llm/call.py does; else JAP's key while it has an allowance there; else nothing."""
+    if await secrets.has_own_key(session, user_id):
+        return "own_key"
+    return "jap" if limits.ai_usd > 0 else "none"
+
+
 async def to_out(session: AsyncSession, profile: Profile) -> ProfileOut:
     data = {f: getattr(profile, f) for f in FIELDS}
     limits = await limits_for(session, profile.user_id)
@@ -74,6 +87,8 @@ async def to_out(session: AsyncSession, profile: Profile) -> ProfileOut:
         auto_apply_min_skills=profile.auto_apply_min_skills,
         spend=await month_spend(session),
         plan=plan_out(limits),
+        ai_source=await ai_source(session, profile.user_id, limits),
+        automatic_allowed=await automatic_allowed(session, profile.user_id),
         submit_opt_in=profile.submit_opt_in_at is not None,
         auto_opt_in=profile.auto_opt_in_at is not None,
         submit_paused=profile.submit_paused,  # IDEA-17
@@ -214,6 +229,8 @@ async def flip_switches(body: ProfileSwitches, session: Session) -> ProfileOut:
     profile = await load_profile(session)
     _consent(profile, body)
     if body.apply_mode is not None:
+        if body.apply_mode == "automatic" and not await automatic_allowed(session, profile.user_id):
+            raise ApiError(403, "automatic_not_allowed", NOT_ALLOWED_AUTO)
         if body.apply_mode == "automatic" and not consent.may_apply_automatically(profile):
             raise ApiError(409, "consent_needed", consent.NEEDS_AUTO)
         profile.apply_mode = body.apply_mode

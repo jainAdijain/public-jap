@@ -16,6 +16,10 @@ companies followed, what each job is to them, searches, applications (with the f
 description, every answer sent, cover letter, screenshot, trace), AI spend, an optional
 OpenRouter key (sealed), and a subscription if they pay.
 
+Before someone has an account, the admin's invite list (launch decision D4) holds only their
+email address, in one `app_setting` row. It leaves the list when their account is made, or
+when the admin removes it.
+
 ## What reaches a model
 
 Everything goes through `llm.call()`, which redacts, guards, enforces the spend caps, logs an
