@@ -1,6 +1,6 @@
 # Launch plan
 
-The steps of Phase 6 ([plan.md](plan.md)), from today (v0.23.0 on `main`, PR 6 open) to open
+The steps of Phase 6 ([plan.md](plan.md)), from today (v0.24.0 on `main`) to open
 sign-up and `v1.0.0`. Tick a box in the same pull request that does the step, and add any step
 you find was missing. **Owner** marks what only
 Aditya can do (a decision, a legal statement, a credential, a payment account); everything
@@ -22,8 +22,8 @@ The gate between stages is the **Pause sign-up** switch in Settings > Accounts.
 
 ## Stage 1: land PR 6 (v0.24.0)
 
-- [ ] CI green on `launch` (it was re-running after the `cryptography` 48.0.1 upgrade and the
-      Trivy pin)
+- [x] CI green on `launch` (`cryptography` 50, Trivy pinned to a commit, the image patched and
+      without pip)
 - [ ] **Owner:** fill in the four operator facts in `frontend/src/legal.ts`: name, postal
       address, contact address, governing law. The draft banner goes away only then, and
       `make test` then insists `security.txt` carries the real contact
@@ -32,7 +32,7 @@ The gate between stages is the **Pause sign-up** switch in Settings > Accounts.
       read it too (ideally someone who knows DPDP/GDPR)
 - [ ] Raise `TERMS_VERSION` **once**, with the final wording, so early accounts are asked again
       at launch and not twice in a week
-- [ ] Merge PR 6; update [state.md](../state.md) and the behaviour pages it
+- [x] Merge PR 6; update [state.md](../state.md) and the behaviour pages it
       changes in the same or the next PR
 
 ## Stage 2: the decisions that shape who can sign up

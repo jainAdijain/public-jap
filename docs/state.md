@@ -1,33 +1,25 @@
 # State
 
 **As of 26 Nov 2026.** Open phase: **6, public launch** ([plan.md](intent/plan.md)).
-Dev (local) runs `main` at **v0.23.0**. Prod (live) has **never been released**: no `v*` tag has
+Dev (local) runs `main` at **v0.24.0**. Prod (live) has **never been released**: no `v*` tag has
 been pushed. Update this page whenever something merges, is released, or is found broken.
+
+v0.24.0 (PR 6, `launch`) brought encrypted backups (IDEA-11: `JAP_BACKUP_AGE_RECIPIENT` pipes
+`pg_dump` through `age`, `make restore KEY=...` takes the private key); a real terms of service
+and privacy notice, Razorpay named, each claim a test in `test_privacy_claims.py`, with a draft
+banner until the four operator facts in `frontend/src/legal.ts` are filled in (`TERMS_VERSION`
+2026-11-22); `make load-test` (the machine copes with 150 accounts, the AI money does not, see
+[launch-plan.md](intent/launch-plan.md), decision D1); `/api/health` telling a stranger only up
+or down; dependencies locked and hashed (`make lock`, `cryptography` 50); and pip-audit, npm
+audit, gitleaks, Trivy and Dependabot in CI, with the image patched and shipped without pip so
+the scan starts green.
 
 ## In flight
 
 Every session updates this before it stops: branch, done, half done, next step, blockers.
 
-`docs/` was arranged as intent, structure and behaviour, with the drift check, in PR 8
-(decision 26). Nothing of it is half done.
-
-### PR 6, branch `launch`, v0.24.0 (Phase 6)
-
-Not on `main` yet. When it merges, move these lines into the version line above and update the
-pages it touches ([privacy-and-data.md](behaviour/privacy-and-data.md), [operations.md](structure/operations.md)).
-
-- Encrypted backups (IDEA-11): `JAP_BACKUP_AGE_RECIPIENT` pipes `pg_dump` through `age`; the
-  server holds only the public key, `make restore KEY=...` takes the private one.
-- A real terms of service and privacy notice (`frontend/src/pages/LegalPage.tsx`,
-  `frontend/src/legal.ts`), each claim backed by `backend/tests/test_privacy_claims.py`.
-  It shows a draft banner until the four operator facts (name, postal address, contact
-  address, governing law) are filled in. `TERMS_VERSION` moves to 2026-11-22.
-- `make load-test` (150 accounts): the machine copes; the AI money does not (see
-  [launch-plan.md](intent/launch-plan.md), decision D1).
-- `/api/health` tells a stranger only up or down; dependencies pinned and hashed in
-  `backend/requirements.lock` (`make lock`); pip-audit, npm audit, gitleaks, Trivy and
-  Dependabot in CI; `/.well-known/security.txt`; a breach runbook in README.
-- Still needs Aditya: the operator facts, and the AI-budget decision.
+Nothing is half done. Next is [launch-plan.md](intent/launch-plan.md) stage 1's owner steps:
+the operator facts and the AI-budget decision, both Aditya's.
 
 ## Never verified for real
 
@@ -64,7 +56,7 @@ From [bugs.md](bugs.md) (read it for the write-ups):
 ## Open ideas that touch the launch
 
 IDEA-9 (invites), IDEA-18 (outbound address per user, seam only), IDEA-20 (whether Automatic
-mode is offered to the public), IDEA-22 (browser extension), IDEA-23 (launch review, in PR 6),
+mode is offered to the public), IDEA-22 (browser extension), IDEA-23 (launch review, part built in v0.24.0),
 IDEA-24 (Devin cloud blueprint). See [ideas.md](ideas.md).
 
 ## Drift between documents
@@ -73,7 +65,6 @@ IDEA-24 (Devin cloud blueprint). See [ideas.md](ideas.md).
   (PRD: not now), sign-up is open (PRD: invite-only at first), the free AI allowance is $1
   (PRD: $2). Phase 2 to 5 ids (`S14`, `S15`, `S16`, `T6`, `U22`) were proposed in PR 2 and
   paid plans have no PRD id yet (cited as IDEA-21).
-- **README** says v0.22.0 in its header while the code says 0.23.0; PR 6 fixes it.
 - **`AGENTS.md`** used to say new routers go in the `current_user` loop; the code's loop uses
   `agreed_user` (signed in and agreed to the current notice). Corrected with this folder.
 - **Versions** are still edited by hand in four files (`AGENTS.md`, Releases), while decision 25

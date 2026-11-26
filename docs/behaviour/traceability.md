@@ -51,7 +51,7 @@ live in `backend/tests/`.
 | DATA-1 Download my data | `backend/api/account.py` | `test_account_delete.py::test_export_holds_everything_of_mine_and_nothing_of_yours`, `test_account_delete.py::test_every_private_table_is_exported_and_deleted`, `test_code_routes.py::test_the_code_is_left_out_of_an_export` | Proved |
 | DATA-2 Delete my account | `backend/pipeline/erasure.py` | `test_account_delete.py::test_delete_takes_everything_of_mine_and_nothing_of_yours`, `test_account_delete.py::test_delete_asks_for_the_password_and_the_address`, `test_account_delete.py::test_export_and_delete_work_without_agreeing_to_a_new_notice`, `test_billing.py::test_deleting_an_account_stops_the_money_first` | Proved |
 | DATA-3 Retention | `backend/pipeline/retention.py` | `test_retention.py::test_old_traces_go_and_recent_ones_and_documents_stay`, `test_retention.py::test_every_users_folder_is_swept_not_only_the_first`, `test_observability.py::test_cleanup_keeps_30_days` | Proved |
-| DATA-4 Every notice claim is a test | `frontend/src/legal.ts` (PR 6) | none on this branch | Gap: `test_privacy_claims.py` arrives with PR 6 |
+| DATA-4 Every notice claim is a test | `frontend/src/pages/LegalPage.tsx`, `frontend/src/legal.ts` | `test_privacy_claims.py::test_every_claim_is_still_in_the_notice`, `test_privacy_claims.py::test_razorpay_is_sent_an_account_id_and_nothing_else`, `test_privacy_claims.py::test_untestable_claims_are_listed_with_a_reason` | Proved |
 
 ## Models and logs
 
@@ -102,6 +102,6 @@ live in `backend/tests/`.
 | --- | --- | --- | --- |
 | OPS-1 `/api/inngest` only on the worker | `backend/main.py` | `test_hosting.py::test_the_api_process_does_not_mount_the_inngest_endpoint`, `test_auth.py::test_inngest_endpoint_refuses_proxied_requests` | Proved |
 | OPS-2 Health and alerts | `backend/observability/` | `test_health.py::test_health_all_ok`, `test_health.py::test_health_reports_ollama_down`, `test_observability.py::test_health_alerts_are_sent_once` | Proved |
-| OPS-3 Daily dumps, encrypted | `backend/pipeline/backup.py` | `test_hardening.py::test_backup_files` | Proved for daily dumps; Gap: encryption arrives with PR 6, and no restore has been done |
+| OPS-3 Daily dumps, encrypted | `backend/pipeline/backup.py` | `test_hardening.py::test_backup_files`, `test_hardening.py::test_backup_encrypted_to_a_key_the_server_does_not_hold`, `test_hardening.py::test_backup_refuses_plaintext_when_age_is_missing` | Proved; Gap: no restore drill has been done |
 | OPS-4 Release by tag | `.github/workflows/release.yml`, `infra/scripts/deploy.sh` | none | Gap: no `v*` tag has ever been pushed |
 | OPS-5 Version from git tags | not built | none | Gap: not built; the version is still edited in four files by hand (`AGENTS.md`, Releases) |

@@ -26,7 +26,9 @@ alerts. A cloud sandbox with no Docker uses `make setup-host` and `make test-hos
 `make test` (or `make test-host`) is the definition of done: ruff, ruff format, strict mypy,
 pytest (database tests fail rather than skip without Postgres), UI lint and build, agent
 guards. CI (`.github/workflows/ci.yml`) runs the same plus `docker compose config -q` for both
-compose files. PR 6 adds pip-audit, npm audit, gitleaks and Trivy.
+compose files, pip-audit, npm audit, gitleaks, and a Trivy scan of the app image (HIGH and
+CRITICAL with a fix fail it). The image takes Ubuntu's security updates when it is built and
+ships without pip, whose vendored libraries trail their fixes; Dependabot opens the updates.
 
 ## Releasing and deploying
 
@@ -67,7 +69,7 @@ the public hostname in Cloudflare **last**, with a rate-limit rule on `/api/auth
 `JAP_CLIENT_IP_HEADER=CF-Connecting-IP`, the release images and ports. Still to be set in
 `.env.live` (check each with a set/empty test, never print it): `JAP_ADMIN_EMAIL` (so nobody
 else can become the first account), `JAP_SECRET_KEY`, the mailbox (`SMTP_*`, `IMAP_*`), and
-as wanted Turnstile, Google, `JAP_INBOUND_SECRET`, Razorpay, and (PR 6)
+as wanted Turnstile, Google, `JAP_INBOUND_SECRET`, Razorpay, and
 `JAP_BACKUP_AGE_RECIPIENT`.
 
 ## Backups
@@ -79,14 +81,15 @@ as wanted Turnstile, Google, `JAP_INBOUND_SECRET`, Razorpay, and (PR 6)
 | `make backup-pull SERVER=...` | the newest dump | the Mac, `data/backups-live/` |
 
 The third is the only copy that survives losing the hosting account. `make restore FILE=...`
-brings one back. **PR 6** encrypts dumps with `age` (`JAP_BACKUP_AGE_RECIPIENT`, public key
+brings one back. Dumps are encrypted with `age` (`JAP_BACKUP_AGE_RECIPIENT`, public key
 on the server, `make restore KEY=...` with the private one). A backup that has never been
 restored is not a backup: do a restore drill before launch and then on a schedule.
 
 ## Monitoring
 
 - `/api/health`: API, database, Inngest, Ollama. Answers 200 with `"ok":false` when a
-  dependency is unwell. (PR 6: strangers get only up/down.)
+  dependency is unwell. A stranger gets only up or down; the detail is for the admin and
+  for callers inside the stack.
 - An **uptime check from outside** on `https://<host>/api/health` every 5 minutes matching
   `"ok":true` (Better Stack, UptimeRobot). Every in-stack alert comes from `health-watch`,
   which cannot report the stack being down.
@@ -97,7 +100,7 @@ restored is not a backup: do a restore drill before launch and then on a schedul
 
 ## Incidents
 
-PR 6 adds the breach runbook to README (If something leaks). In short: pause sign-up and set
+The breach runbook is in README (If something leaks). In short: pause sign-up and set
 `JAP_SUBMIT_ENABLED=false` (or `make stop ENV=live`, which takes the tunnel down); back up
 before changing anything; work out whose data from `PRIVATE_TABLES`; tell the regulator and
 the people affected (GDPR: 72 hours; DPDP: the Board and the users); `make sign-out-all`,
