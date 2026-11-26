@@ -28,7 +28,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -53,7 +53,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -67,7 +67,7 @@ jobs:
     name: agent guards (hook self-test, nothing private tracked, docs agree with the code)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: python3 infra/scripts/agent-guard.py --self-test
       - run: infra/scripts/check-tracked.sh
       - run: python3 infra/scripts/check_docs.py
@@ -76,7 +76,7 @@ jobs:
     name: audit (known vulnerabilities, leaked secrets)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # gitleaks reads the history, not just the files that are here now.
           fetch-depth: 0
@@ -111,7 +111,7 @@ jobs:
     name: image (builds, no high-severity CVEs)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The image the server runs, scanned before a tag ever builds it for real. The base
       # is Playwright's, which carries a lot: only HIGH and CRITICAL with a fix available
       # fail, or this is red every week for things nobody can act on.
@@ -128,7 +128,7 @@ jobs:
     name: compose file is valid
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cp .env.example .env
       - run: docker compose --env-file .env -f infra/compose.yaml config --quiet
       - name: release overlay (live) is valid

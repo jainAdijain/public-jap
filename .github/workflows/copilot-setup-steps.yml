@@ -35,7 +35,7 @@ jobs:
     env:
       JAP_HOST_DATABASE_URL: postgresql+psycopg://jap:jap@127.0.0.1:5432/jap
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
