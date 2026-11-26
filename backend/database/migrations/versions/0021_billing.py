@@ -1,6 +1,6 @@
 """Paid plans: one subscription per account, and the provider events that move it (IDEA-21).
 
-`docs/` is absent from this checkout, so there is no PRD id for paid plans yet. The idea is
+The PRD is absent from this checkout, so there is no PRD id for paid plans yet. The idea is
 IDEA-21 in IDEAS.md; replace the citation here and in backend/billing/ with the PRD id once
 the section exists.
 
