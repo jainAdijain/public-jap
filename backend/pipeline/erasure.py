@@ -75,6 +75,7 @@ FILES: dict[str, str] = {
     "user_listing": "jobs.json",
     "llm_call": "ai-spend.json",
     "user_secret": "api-keys.json",
+    "subscription": "plan.json",
 }
 
 # Left out of the export: a hash of what was sent to a model tells the reader nothing and
@@ -93,7 +94,7 @@ LEAVE_OUT: dict[str, tuple[str, ...]] = {
 # and its resume version, so it goes before both.
 DELETE_ORDER = (
     "application", "run", "user_listing", "board_follow", "answer_bank", "resume_version",
-    "profile", "user_secret",
+    "profile", "user_secret", "subscription",
 )  # fmt: skip
 # Kept, with the person taken out of them (the module docstring says why).
 ANONYMISED = ("llm_call",)

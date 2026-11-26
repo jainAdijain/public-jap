@@ -35,6 +35,9 @@ TABLES = (
     "auth_session, password_reset, app_user, "
     "log_event, route_stat, alert_state, "
     "form_check, llm_call, possible_duplicate, dedup_override, skill_alias, company_alias, "
+    # subscription would go with app_user through CASCADE; billing_event has no foreign key
+    # to anything, so it is only ever emptied because it is named here.
+    "subscription, billing_event, "
     "answer_bank, "
     "application, run, posting, listing, watched_board, company, resume_version, profile"
 )

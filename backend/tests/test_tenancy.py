@@ -222,6 +222,11 @@ async def test_another_users_ids_answer_not_found_on_every_route(
         if "{" in path
         for method in methods
     }
+    # /api/webhooks/{provider} is the exception: its path parameter names a payment
+    # provider, not a row belonging to anybody, and it is not behind a session at all.
+    # What it refuses, and that it never touches another account's plan, is in
+    # tests/test_billing.py.
+    with_id -= {("POST", "/api/webhooks/{}")}
     known = set(ids.values()) | {NOBODY}
 
     def shape(path: str) -> str:
@@ -458,7 +463,14 @@ async def test_the_admin_sets_one_accounts_limits(
     """The free plan is 1 company, 1 application a day and $1 of AI a month. The admin can
     give any one account its own numbers, and put it back on the plan."""
     plan = (await other.get("/api/profile")).json()
-    free = {"name": "Free", "boards": 1, "applications_per_day": 1, "ai_usd": 1.0, "custom": False}
+    free = {
+        "name": "Free",
+        "code": "free",
+        "boards": 1,
+        "applications_per_day": 1,
+        "ai_usd": 1.0,
+        "custom": False,
+    }
     assert plan["plan"] == free and plan["daily_cap"] == 1 and plan["spend"]["cap_usd"] == 1.0
     board = {"ats": "lever", "board_token": "one", "display_name": "One"}
     assert (await other.post("/api/boards", json=board)).status_code == 201
@@ -475,8 +487,13 @@ async def test_the_admin_sets_one_accounts_limits(
     saved = await api.put(path, json=limits)
     assert saved.status_code == 200
     account = saved.json()["accounts"][1]
-    assert account["plan"] == {"name": "Free", "boards": 3, "applications_per_day": 10,
-                               "ai_usd": 7.5, "custom": True}  # fmt: skip
+    assert account["plan"] == {
+        **free,  # still the free plan, with the admin's own numbers on top of it
+        "boards": 3,
+        "applications_per_day": 10,
+        "ai_usd": 7.5,
+        "custom": True,
+    }
     mine_now = (await other.get("/api/profile")).json()
     assert mine_now["plan"]["custom"] is True and mine_now["spend"]["cap_usd"] == 7.5
     assert mine_now["daily_cap"] == 10  # the 50 they typed, held to the new limit

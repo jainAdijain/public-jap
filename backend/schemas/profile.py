@@ -127,7 +127,8 @@ class CodeAddress(BaseModel):
 class Plan(BaseModel):
     """What this account may use (PRD S12), as Settings shows it."""
 
-    name: str  # Free, or Admin
+    name: str  # Free, Plus, or Admin
+    code: str = "free"  # free, plus or admin: what the screen branches on, not the name
     boards: int | None  # companies followed; None: no limit
     applications_per_day: int
     ai_usd: float  # AI spend a month

@@ -27,6 +27,7 @@ from api.auth import check_password, use_code
 from api.errors import ApiError
 from auth import limits, sessions
 from auth.deps import AdminUser, CurrentUser
+from billing import service as billing
 from database import tenant
 from database.models import AppUser
 from database.session import Session
@@ -71,6 +72,10 @@ async def _erase(session: AsyncSession, user_id: uuid.UUID, who: str) -> None:
     """The deletion itself, as the service: it reaches past row-level security, which the
     admin deleting somebody else needs, and closes boards nobody follows any more."""
     await tenant.use(session, tenant.SYSTEM)
+    # Before the rows go: stop the mandate, or the provider would go on taking money from
+    # somebody who no longer has an account here (IDEA-21). Best effort by design — a
+    # provider that is down must not be able to block a deletion.
+    await billing.cancel_quietly(session, user_id)
     done = await erasure.erase(session, user_id)
     event(
         log,

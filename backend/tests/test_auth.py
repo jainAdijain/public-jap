@@ -48,10 +48,17 @@ def _code(secret: str, offset: int = 0) -> str:
 # --- everything is behind sign-in (S6) ----------------------------------------------------------
 
 # The routes no browser session reaches, each shut another way: /api/health says only
-# whether the service is up, /api/inngest answers calls from inside Docker, and
+# whether the service is up, /api/inngest answers calls from inside Docker,
 # /api/inbound/email takes a shared secret because a mail service cannot sign in
-# (IDEA-16). Adding to this set is a decision, not a convenience.
-OPEN = {"/api/health", "/api/inngest", "/api/inbound/email"}
+# (IDEA-16), and /api/webhooks/{provider} takes a signature over the raw body because a
+# payment provider cannot either (IDEA-21; what it refuses is in test_billing.py).
+# Adding to this set is a decision, not a convenience.
+OPEN = {
+    "/api/health",
+    "/api/inngest",
+    "/api/inbound/email",
+    "/api/webhooks/{provider_name}",
+}
 
 
 def _concrete(path: str) -> str:

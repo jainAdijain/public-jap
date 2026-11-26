@@ -460,6 +460,51 @@ class UserIdentity(Timestamps, Base):
     email: Mapped[str | None] = mapped_column(Text)  # what they said then; never looked up by
 
 
+class Subscription(Timestamps, Base):
+    """What an account pays for (IDEA-21), and the state the provider says it is in.
+
+    Private to the account (migration 0018_billing): user_id is filled by the database from
+    the transaction's app.user_id, and the policy hides every other row. One live row an
+    account; cancelled and expired ones stay as history."""
+
+    __tablename__ = "subscription"
+
+    id: Mapped[uuid.UUID] = _id()
+    user_id: Mapped[uuid.UUID] = _owner()
+    provider: Mapped[str] = mapped_column(Text)
+    provider_ref: Mapped[str] = mapped_column(Text)  # the provider's id for this subscription
+    plan_code: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    # The provider's own time for the state above: an event older than this is discarded.
+    state_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BillingEvent(Timestamps, Base):
+    """One webhook from a payment provider, handled exactly once (IDEA-21).
+
+    No user_id: an event can name a subscription this database does not have, and the
+    webhook inserts it before it knows whose it is. UNIQUE (provider, event_id) is the
+    idempotency. The raw body is never kept — it carries the payer's name and address."""
+
+    __tablename__ = "billing_event"
+
+    id: Mapped[uuid.UUID] = _id()
+    provider: Mapped[str] = mapped_column(Text)
+    event_id: Mapped[str] = mapped_column(Text)
+    event_type: Mapped[str] = mapped_column(Text)
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    provider_ref: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str | None] = mapped_column(Text)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str | None] = mapped_column(Text)
+    handled: Mapped[str | None] = mapped_column(Text)  # what it did, or why it did nothing
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class AuthSession(Timestamps, Base):
     """A signed-in browser (stage signed_in) or a sign-in waiting for its code (two_step)."""
 
