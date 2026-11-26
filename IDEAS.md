@@ -26,7 +26,7 @@ limits, is built on the `tenancy` branch and is not listed.
 | [IDEA-8](#idea-8--a-your-plan-line-in-settings) | 1 follow-up | Built (v0.19.0) | A "Your plan" line in Settings |
 | [IDEA-9](#idea-9--invites) | - | Open | Invites |
 | [IDEA-10](#idea-10--an-always-on-server-instead-of-the-mac) | 3 | Built (v0.21.0) | An always-on server instead of the Mac |
-| [IDEA-11](#idea-11--encrypted-off-site-backups) | 3 | Built (unreleased) | Encrypted off-site backups |
+| [IDEA-11](#idea-11--encrypted-off-site-backups) | 3 | Built (v0.24.0) | Encrypted off-site backups |
 | [IDEA-12](#idea-12--no-adminer-and-no-user-content-for-the-admin-on-the-public-stack) | 3 | Built (v0.21.0) | No Adminer, and no user content for the admin, on the public stack |
 | [IDEA-13](#idea-13--request-hardening) | 3 | Built (v0.21.0) | Request hardening |
 | [IDEA-14](#idea-14--a-retention-period-for-traces-and-screenshots) | 3 | Built (v0.21.0) | A retention period for traces and screenshots |
@@ -38,7 +38,7 @@ limits, is built on the `tenancy` branch and is not listed.
 | [IDEA-20](#idea-20--a-decision-on-job-site-blocking-and-terms-of-use) | 4 | Open | A decision on job-site blocking and terms of use |
 | [IDEA-21](#idea-21--paid-plans) | 5 | Built (v0.23.0) | Paid plans |
 | [IDEA-22](#idea-22--a-browser-extension-that-submits-from-the-users-own-machine) | 5 | Open | A browser extension that submits from the user's own machine |
-| [IDEA-23](#idea-23--the-public-launch-review) | 6 | Part built (unreleased) | The public launch review |
+| [IDEA-23](#idea-23--the-public-launch-review) | 6 | Part built (v0.24.0) | The public launch review |
 | [IDEA-24](#idea-24--a-devin-cloud-blueprint-and-the-untested-setup-path) | - | Open | A Devin cloud blueprint, and the untested setup path |
 
 ---
@@ -135,7 +135,7 @@ for files, Inngest Cloud.
 
 ## IDEA-11 — Encrypted off-site backups
 
-**Status:** Built, on the launch branch, not yet released. Recorded 17 Nov 2026, from the
+**Status:** Built (v0.24.0). Recorded 17 Nov 2026, from the
 public-jap plan (Phase 3); the encryption half was deliberately left out of v0.21.0.
 
 What was built: `JAP_BACKUP_AGE_RECIPIENT` takes an `age` public key, and `pg_dump` is piped
@@ -327,7 +327,7 @@ the person it is. Nothing happens while their laptop is closed, so automatic mod
 
 ## IDEA-23 — The public launch review
 
-**Status:** Part built, on the launch branch, not yet released. Recorded 17 Nov 2026, from the
+**Status:** Part built (v0.24.0). Recorded 17 Nov 2026, from the
 public-jap plan (Phase 6).
 
 Before announcing: a privacy policy and terms with a view on the DPDP Act and GDPR, a load test,

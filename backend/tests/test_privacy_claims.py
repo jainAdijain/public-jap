@@ -18,13 +18,18 @@ Three rules for working on this file:
   fail when the promise stops being true, not a second copy of those suites.
 """
 
+import json
 import re
+import uuid
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import httpx
 import pytest
 
 from auth import consent
+from billing import razorpay
 from config import get_settings
 from database import tenant
 from database.models import LlmCall
@@ -32,6 +37,7 @@ from database.session import get_sessionmaker
 from llm import client, redact
 from observability import scrub
 from pipeline import backup, erasure
+from pipeline.limits import PLUS, plan_named
 from tests.conftest import OTHER_EMAIL, OTHER_PASSWORD
 
 FRONTEND = Path(__file__).resolve().parents[2] / "frontend"
@@ -69,6 +75,8 @@ CLAIMS = {
     "logs_scrubbed": "Logs are scrubbed of addresses, phone numbers, keys and codes",
     "backups_encrypted": "Database backups are encrypted to a key held off the server",
     "min_age": "You must be 18 or older to use JAP",
+    "payment_sees_no_card": "JAP never sees your card or bank details",
+    "razorpay_gets_an_id": "JAP sends Razorpay nothing about you but an account id",
     "complain": "you can complain to a data protection authority",
 }
 
@@ -253,6 +261,35 @@ def test_backups_can_be_encrypted_to_a_key_the_server_does_not_hold() -> None:
 
 
 # --- Cookies --------------------------------------------------------------------------
+
+
+async def test_razorpay_is_sent_an_account_id_and_nothing_else(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Starting a checkout creates a subscription with no customer on it. The only thing JAP
+    puts on it is the account id; name, email and card are typed into Razorpay's own page,
+    which is why the UI never loads Razorpay's checkout script either."""
+    monkeypatch.setattr(get_settings(), "razorpay_plan_id_plus", "plan_test_plus")
+    sent: list[dict[str, Any]] = []
+
+    async def fake_post(self: Any, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        sent.append(body)
+        return {"id": "sub_test", "short_url": "https://rzp.io/i/test"}
+
+    monkeypatch.setattr(razorpay.Razorpay, "_post", fake_post)
+    user = SimpleNamespace(
+        id=uuid.uuid4(), email="someone@example.com", name="Some One", phone="+91 98765 43210"
+    )
+    await razorpay.Razorpay().start(plan_named(PLUS), user)  # type: ignore[arg-type]
+
+    (body,) = sent
+    assert body["notes"] == {"user_id": str(user.id)}
+    assert "customer_id" not in body and "customer" not in body
+    flat = json.dumps(body)
+    assert not any(v in flat for v in (user.email, user.name, user.phone))
+    assert "checkout.razorpay.com" not in "".join(
+        f.read_text() for f in (FRONTEND / "src").rglob("*.ts*")
+    )
 
 
 def test_the_ui_loads_nothing_that_watches_you() -> None:

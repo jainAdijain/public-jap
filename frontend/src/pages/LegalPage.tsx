@@ -83,6 +83,13 @@ function Terms() {
         </p>
       </Para>
 
+      <Para title="Paying for Plus">
+        <p>
+          Plus is a monthly subscription taken through Razorpay, on their page: JAP never sees your card or bank details. You can cancel at any time in Settings &gt; Your plan, and Plus lasts to the end of the
+          month already paid for. If a renewal fails, Plus is kept for a few days while it is retried, and after that the account goes back to the free plan with its data untouched.
+        </p>
+      </Para>
+
       <Para title="What you may not do">
         <ul>
           <li>Apply as anyone but yourself, or give details that are not true.</li>
@@ -94,7 +101,7 @@ function Terms() {
 
       <Para title="What JAP does not promise">
         <p>
-          JAP is free, and provided as it is. It does not promise you a job, an interview, or a reply. It does not promise that every matching job is found, that an application always arrives, or that the
+          The free plan costs nothing, and Plus is paid for monthly through Razorpay; either way JAP is provided as it is. It does not promise you a job, an interview, or a reply. It does not promise that every matching job is found, that an application always arrives, or that the
           service is available at any particular time: a job board can change, an employer&apos;s form can defeat it, and the server can be down. Where the law allows, the operator is not liable for a job you
           did not get, an application that failed or was never sent, or anything that follows from what an application said.
         </p>
@@ -137,6 +144,7 @@ function Privacy() {
           <li>The answers you give to employers&apos; questions, and cover letters written for you.</li>
           <li>Which companies you follow, which jobs matched you, and every application and its outcome.</li>
           <li>A screenshot and a recording of each form JAP fills in, as the record of what was sent.</li>
+          <li>If you pay for Plus: which plan you are on, its state, when the paid month ends, and Razorpay&apos;s reference for the subscription. Never a card or bank detail.</li>
           <li>Sign-in records: when you signed in, from what kind of browser, and the security codes an employer emailed you.</li>
         </ul>
       </Para>
@@ -207,6 +215,10 @@ function Privacy() {
             <tr>
               <td>Google, only if you choose to sign in with Google</td>
               <td>That you signed in; Google tells JAP your email address and that it is verified</td>
+            </tr>
+            <tr>
+              <td>Razorpay, only if you pay for Plus</td>
+              <td>JAP sends Razorpay nothing about you but an account id; your name, email and card you type into Razorpay&apos;s own page</td>
             </tr>
             <tr>
               <td>The company hosting the server, and Sentry if error reporting is on</td>
