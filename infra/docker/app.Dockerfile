@@ -1,6 +1,6 @@
 # Playwright's Python image ships Chromium and its system libraries.
 # Keep this tag in step with the playwright pin in backend/pyproject.toml.
-FROM mcr.microsoft.com/playwright/python:v1.64.1-noble
+FROM mcr.microsoft.com/playwright/python:v1.65.2-noble
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
