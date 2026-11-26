@@ -27,9 +27,9 @@ The gate between stages is the **Pause sign-up** switch in Settings > Accounts.
 - [x] **Owner:** fill in the four operator facts in `frontend/src/legal.ts`: name, postal
       address, contact address, governing law. Aditya, Rajasthan, India,
       privacy@tutorial.monster (also in `security.txt`), India. The draft banner is gone
-- [ ] **Owner:** make privacy@tutorial.monster receive mail: an alias on the domain's
-      existing mailbox (not Cloudflare Email Routing, which would replace its MX records),
-      then send it a test message
+- [x] **Owner:** make privacy@tutorial.monster receive mail: an alias on the domain's
+      existing mailbox (not Cloudflare Email Routing, which would replace its MX records).
+      A test message arrived on 26 Nov 2026
 - [ ] **Owner:** replace "Rajasthan, India" with a full postal address before Plus goes on
       sale; Razorpay checks for one on the site
 - [ ] **Owner:** read the terms and privacy notice as a statement in your own name. The code

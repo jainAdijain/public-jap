@@ -22,8 +22,8 @@ Branch `claude/project-thread-ffjekk`: the four operator facts are filled in
 (`frontend/src/legal.ts`: Aditya; Rajasthan, India; privacy@tutorial.monster; India), and
 `security.txt` carries the same contact, so the terms and notice no longer show the draft
 banner. `TERMS_VERSION` is deliberately not raised: the launch plan raises it once, after
-Aditya has read the final wording. Still open, all Aditya's: make privacy@tutorial.monster
-receive mail, a full postal address before Plus is sold, and the AI-budget decision
+Aditya has read the final wording. privacy@tutorial.monster receives mail (an alias on the domain's
+mailbox, tested). Still open, all Aditya's: a full postal address before Plus is sold, and the AI-budget decision
 ([launch-plan.md](intent/launch-plan.md) stage 1).
 
 ## Never verified for real
