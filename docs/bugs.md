@@ -16,7 +16,7 @@ commit that fixes them.
 | Id | Type | Status | What |
 | --- | --- | --- | --- |
 | [JAP-1](#jap-1--bug--profile-flashed-no-resume-yet-on-every-visit) | Bug | Fixed (v0.16.2) | Profile flashed "No resume yet" for a second on every visit |
-| [JAP-2](#jap-2--bug--a-spent-openrouter-key-is-retried-until-it-fills-the-log) | Bug | Open | A spent OpenRouter key is retried until it fills the log |
+| [JAP-2](#jap-2--bug--a-spent-openrouter-key-is-retried-until-it-fills-the-log) | Bug | Fixed (v0.25.1) | A spent OpenRouter key is retried until it fills the log |
 | [JAP-3](#jap-3--bug--the-skills-matching-preset-can-never-match-with-an-empty-required-list) | Bug | Open | The skills matching preset can never match with an empty Required list |
 | [JAP-4](#jap-4--issue--jap_env-still-says-dev-and-prod-after-the-locallive-rename) | Issue | Open | `JAP_ENV` still says `dev` and `prod` after the local/live rename |
 | [JAP-5](#jap-5--bug--a-job-title-wider-than-its-column-showed-as-nothing-but) | Bug | Fixed (v0.17.1) | A job title wider than its column showed as nothing but `...` |
@@ -53,7 +53,7 @@ cache cannot go stale.
 
 ## JAP-2 — Bug — A spent OpenRouter key is retried until it fills the log
 
-**Status:** Open. Found 12 Nov 2026 while tracing 954 errors on Settings.
+**Status:** Fixed (v0.25.1): a 403 whose message says the limit is exceeded is now `OutOfCredits`. Found 12 Nov 2026 while tracing 954 errors on Settings.
 
 When the OpenRouter key hits its credit limit the API answers `403 Key limit exceeded (total
 limit)`. That is permanent — no amount of retrying helps — but JAP treats it as a transient

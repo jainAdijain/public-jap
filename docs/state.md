@@ -26,6 +26,9 @@ until real users have tried JAP. New requirements AUTH-11, APPLY-8 and BILL-6, a
 
 Every session updates this before it stops: branch, done, half done, next step, blockers.
 
+Branch `claude/project-thread-4us4pq` (v0.25.1): JAP-2 fixed, a `403 Key limit exceeded` from
+OpenRouter is now `OutOfCredits` and stops without retrying. In a pull request; tests left to CI.
+
 Branch `claude/project-thread-uyba95` (v0.25.0, the launch switches): built, tested and in a
 pull request for Aditya to review. Not looked at in a browser: the new Settings > Accounts
 controls (Allow Automatic, Invite, the AI column), the "No AI yet" banner on Jobs and the

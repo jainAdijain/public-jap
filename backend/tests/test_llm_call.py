@@ -182,6 +182,23 @@ async def test_402_is_out_of_credits_without_the_key_link(
     assert "out of credits" in str(exc.value) and "0123abcd" not in str(exc.value)
 
 
+async def test_a_403_key_limit_exceeded_is_out_of_credits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _openrouter(monkeypatch, 403, {"error": {"message": "Key limit exceeded (total limit)"}})
+    with pytest.raises(client.OutOfCredits):
+        await client.chat("key", client.build_body("m", "s", "u", {}, 0.0, 100))
+
+
+async def test_any_other_403_stays_a_retryable_model_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _openrouter(monkeypatch, 403, {"error": {"message": "Flagged by moderation"}})
+    with pytest.raises(client.ModelCallError) as exc:
+        await client.chat("key", client.build_body("m", "s", "u", {}, 0.0, 100))
+    assert not isinstance(exc.value, client.OutOfCredits)
+
+
 async def test_a_reply_cut_off_at_max_tokens_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
     _openrouter(monkeypatch, 200, {"choices": [
         {"message": {"content": '{"answer": "I'}, "finish_reason": "length"}
