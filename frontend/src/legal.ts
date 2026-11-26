@@ -7,13 +7,15 @@
 export const PLACEHOLDER = 'TO BE FILLED IN'
 
 // The four things no amount of reading the code can tell you. They are a statement about a
-// real person or company, and they are Aditya's to write. Until they are real, the terms
-// and the notice call themselves a draft, on the page, where a reader can see it.
+// real person, Aditya's own, and they are filled in. While any one of them is PLACEHOLDER
+// again, the terms and the notice call themselves a draft, on the page, where a reader can see
+// it. The address is the state only for now; a full postal address goes in before Plus goes
+// on sale (launch-plan.md, stage 1).
 export const OPERATOR = {
-  name: PLACEHOLDER, // the person or company that runs JAP, as the data controller
-  address: PLACEHOLDER, // a postal address, which both the DPDP Act and the GDPR expect
-  email: PLACEHOLDER, // where privacy requests and grievances go
-  jurisdiction: PLACEHOLDER, // whose courts and whose law the terms run under
+  name: 'Aditya', // the person who runs JAP, as the data controller
+  address: 'Rajasthan, India', // where the controller is; a full postal address before Plus
+  email: 'privacy@tutorial.monster', // where privacy requests and grievances go
+  jurisdiction: 'India', // whose courts and whose law the terms run under
 }
 
 // Computed, never hand-set: a flag someone has to remember to turn off is one that gets

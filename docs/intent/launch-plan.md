@@ -24,9 +24,14 @@ The gate between stages is the **Pause sign-up** switch in Settings > Accounts.
 
 - [x] CI green on `launch` (`cryptography` 50, Trivy pinned to a commit, the image patched and
       without pip)
-- [ ] **Owner:** fill in the four operator facts in `frontend/src/legal.ts`: name, postal
-      address, contact address, governing law. The draft banner goes away only then, and
-      `make test` then insists `security.txt` carries the real contact
+- [x] **Owner:** fill in the four operator facts in `frontend/src/legal.ts`: name, postal
+      address, contact address, governing law. Aditya, Rajasthan, India,
+      privacy@tutorial.monster (also in `security.txt`), India. The draft banner is gone
+- [x] **Owner:** make privacy@tutorial.monster receive mail: an alias on the domain's
+      existing mailbox (not Cloudflare Email Routing, which would replace its MX records).
+      A test message arrived on 26 Nov 2026
+- [ ] **Owner:** replace "Rajasthan, India" with a full postal address before Plus goes on
+      sale; Razorpay checks for one on the site
 - [ ] **Owner:** read the terms and privacy notice as a statement in your own name. The code
       half is pinned by `test_privacy_claims.py`; the wording is yours. Have someone you trust
       read it too (ideally someone who knows DPDP/GDPR)
