@@ -73,7 +73,7 @@ jobs:
       # a tag never points at an image that one architecture cannot run.
       - name: Build
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
