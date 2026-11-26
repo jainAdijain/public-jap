@@ -9,7 +9,7 @@ Blocked:
   - reading or writing a secrets file (.env, .env.live, .env.tunnel, ...) with a file tool,
   - a shell command that would print one (cat .env, grep without -q, source .env, ...),
   - `docker compose ... config` without -q, which prints every secret substituted in,
-  - anything aimed at the live stack (ENV=live, .env.live, the jap-live project), unless the
+  - anything aimed at the live stack (ENV=live, .env.live, the jap-live and public-jap-live projects), unless the
     harness was started with JAP_AGENT_ALLOW_LIVE=1.
 
 It is a backstop, not a sandbox: a determined command can get round a pattern. `make reset`
@@ -139,6 +139,7 @@ CASES: list[tuple[bool, dict[str, str]]] = [
     (True, {"command": "make start ENV=live"}),
     (True, {"command": "ENV=live make migrate"}),
     (True, {"command": "docker compose -p jap-live ps"}),
+    (True, {"command": "docker compose -p public-jap-live ps"}),
     (True, {"command": "grep -q X .env.live && echo set"}),
     (False, {"command": "make start ENV=local"}),
     (False, {"command": "grep -n 'ENV=live' Makefile README.md"}),

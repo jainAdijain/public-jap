@@ -47,7 +47,8 @@ A version tag is the release.
 1. Merge to `main` with `make test` green and the version bumped in the four places
    (`AGENTS.md`, Releases).
 2. `git tag vX.Y.Z && git push origin vX.Y.Z`; `.github/workflows/release.yml` builds
-   `public-jap-app` and `public-jap-ui` (`linux/amd64`) and pushes them to GHCR.
+   `public-jap-app` and `public-jap-ui` for `linux/amd64` and `linux/arm64`, each on a runner
+   of that architecture, and pushes them to GHCR under one tag (decision 31).
 3. If the release has a migration, back up live first (`make backup ENV=live` on the server).
 4. On the server: `cd /srv/public-jap && make deploy ENV=live TAG=vX.Y.Z`. It refuses a dirty
    checkout, checks the tag out, pulls, starts, waits for `/api/health` and migrates.
@@ -63,6 +64,14 @@ upgrades, swap, clone to `/srv/public-jap`); a Cloudflare Tunnel of the server's
 `make env ENV=live` writes `.env.live` with fresh database and Inngest keys; then the secrets
 by hand (`TUNNEL_TOKEN`, `OPENROUTER_API_KEY`, `SMTP_PASSWORD`, optional `SENTRY_DSN`). Add
 the public hostname in Cloudflare **last**, with a rate-limit rule on `/api/auth/*`.
+
+**On a shared machine** (the first server is an ARM VM that also runs the private JAP's
+live stack and dev stacks) skip `server-setup.sh`: its firewall and SSH changes reach
+everything on the machine. Clone to `/srv/public-jap` as the login user instead; that
+checkout is live's alone, never the `make vm-sync` mirror, because `make deploy` refuses
+a dirty checkout and checks tags out. live is Docker project `public-jap-live` on ports
+5383 / 8211 / 8491 / 5436, clear of the private JAP's `jap-live` on 5373 / 8201 / 8490 /
+5434: one project name would be one database volume (decision 31).
 
 `infra/env/live.env` already carries the non-secret live settings: `JAP_SUBMIT_ENABLED`,
 `JAP_COOKIE_SECURE=true`, `JAP_UI_URL`, `CORS_ORIGINS`,
