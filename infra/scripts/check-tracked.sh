@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # Fails if git holds, or is about to hold, something this public repo must never carry:
-# a secrets file, a private product document (docs/private/, docs/text/, a PDF, or anything in
+# a secrets file, a private product document (docs/intent/sources/, docs/private/, docs/text/, a PDF, or anything in
 # docs/ that is not a Markdown page: the PRD and design doc carry personal data), runtime data,
 # local notes, or a line that looks like an OpenRouter key. docs/*.md is the public project
 # documentation and is tracked on purpose.
@@ -29,7 +29,7 @@ classify() {
     case "$f" in
       .env.example | data/.gitkeep) ;;
       .env | .env.* | */.env | */.env.*) echo "secrets file: $f" ;;
-      docs/private/* | docs/text/*) echo "product document (personal data): $f" ;;
+      docs/intent/sources/* | docs/private/* | docs/text/*) echo "product document (personal data): $f" ;;
       docs/*.md | docs/*/*.md) ;;
       docs/*) echo "not a Markdown page, so possibly a product document: $f" ;;
       data/* | data-live/*) echo "runtime data: $f" ;;

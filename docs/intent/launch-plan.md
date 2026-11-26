@@ -1,7 +1,8 @@
 # Launch plan
 
-From today (v0.23.0 on `main`, PR 6 open) to open sign-up. Tick a box in the same pull
-request that does the step, and add any step you find was missing. **Owner** marks what only
+The steps of Phase 6 ([plan.md](plan.md)), from today (v0.23.0 on `main`, PR 6 open) to open
+sign-up and `v1.0.0`. Tick a box in the same pull request that does the step, and add any step
+you find was missing. **Owner** marks what only
 Aditya can do (a decision, a legal statement, a credential, a payment account); everything
 else an agent can do or prepare.
 
@@ -9,11 +10,15 @@ The gate between stages is the **Pause sign-up** switch in Settings > Accounts.
 
 ## Stage 0: one source of truth
 
-- [x] `docs/` with goal, state, architecture, behaviour, operations, decisions and this plan
-- [x] `AGENTS.md` and `README.md` point at it; every PR updates it (PR template asks)
-- [ ] **Owner:** move the private product documents into `docs/private/` on the Mac
-      (`mkdir -p docs/private && mv docs/*.pdf docs/text docs/private/` if they sit at the
-      top of `docs/`). They stay ignored either way; this keeps them apart from the public pages.
+- [x] `docs/` with goal, state, architecture, behaviour, operations, decisions and this plan (PR 7)
+- [x] `docs/` split into intent, structure and behaviour, with requirement ids, a phase plan, a
+      traceability map and a drift check in CI (this restructure, decision 26)
+- [ ] **Owner:** move the private product documents into `docs/intent/sources/` on the Mac
+      (`mkdir -p docs/intent/sources && mv docs/private/* docs/intent/sources/`, or
+      `mv docs/*.pdf docs/text docs/intent/sources/` if they still sit at the top of `docs/`).
+      They stay ignored wherever they are; this keeps them beside the intent they feed.
+- [ ] Build OPS-5, versions from git tags, before the first tag is pushed in stage 3, so the
+      first release is already named the new way
 
 ## Stage 1: land PR 6 (v0.24.0)
 
@@ -27,7 +32,7 @@ The gate between stages is the **Pause sign-up** switch in Settings > Accounts.
       read it too (ideally someone who knows DPDP/GDPR)
 - [ ] Raise `TERMS_VERSION` **once**, with the final wording, so early accounts are asked again
       at launch and not twice in a week
-- [ ] Merge PR 6; update [current-state.md](current-state.md) and the behaviour pages it
+- [ ] Merge PR 6; update [state.md](../state.md) and the behaviour pages it
       changes in the same or the next PR
 
 ## Stage 2: the decisions that shape who can sign up
@@ -61,7 +66,7 @@ failure is cheap.
       and many accounts it becomes every account's problem. Close JAP-3 if it is obsolete
 - [ ] Tag `v0.24.0`, push it, watch the Release workflow push both images to GHCR
 - [ ] On the server or VM: `server-setup.sh` if not done, a tunnel of the server's own,
-      `make env ENV=live`, then the secrets by hand ([operations.md](operations.md))
+      `make env ENV=live`, then the secrets by hand ([operations.md](../structure/operations.md))
 - [ ] Set `JAP_ADMIN_EMAIL` **before** the first start, so the first account (the admin) can
       only be yours; then create it
 - [ ] `make deploy ENV=live TAG=v0.24.0`; `/api/health` green on all four checks;
@@ -101,11 +106,12 @@ failure is cheap.
 ## Stage 6: open sign-up
 
 - [ ] D1 to D4 settled for the open public and recorded in [decisions.md](decisions.md)
+- [ ] Tag `v1.0.0` (decision 25: 1.0.0 is the first public launch) and deploy it
 - [ ] Un-pause sign-up
 - [ ] Weekly: restore a backup now and then, `make backup-pull`, read Health and Insights,
       check Dependabot and the security scans, check per-site rates
 - [ ] Monthly: AI spend against the OpenRouter bill; capacity against the server
-- [ ] Bring the PRD up to date with the drift listed in [current-state.md](current-state.md)
+- [ ] Bring the PRD up to date with the drift listed in [state.md](../state.md)
 
 ## Later, only when the numbers ask
 

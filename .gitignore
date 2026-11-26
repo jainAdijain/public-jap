@@ -11,7 +11,9 @@ data-live/
 
 # docs/ holds the tracked, public project docs (*.md, docs/README.md). The product documents
 # (PRD, build plan, engineering design doc) carry personal data, so they stay on the Mac in
-# docs/private/; PDFs and their text extraction are ignored wherever they sit in docs/.
+# docs/intent/sources/ (docs/private/ before it). PDFs and their text extraction are ignored
+# wherever they sit in docs/.
+docs/intent/sources/
 docs/private/
 docs/text/
 docs/**/*.pdf

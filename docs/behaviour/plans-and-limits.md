@@ -1,5 +1,9 @@
 # Plans, limits and money
 
+**Requirements:** BILL-1 to BILL-5, APPLY-6 ([requirements.md](../intent/requirements.md)). The tests that
+prove each one are in [traceability.md](traceability.md); a rule here with no test is a gap
+there.
+
 Code: `backend/pipeline/limits.py` (the only place that decides), `backend/llm/spend.py`,
 `backend/billing/`, `backend/api/billing.py`, `backend/api/webhooks.py`, migrations
 `0014_account_limits`, `0021_billing`. Long form: `README.md` (Sign-in and accounts).
@@ -49,7 +53,7 @@ characters are ever shown. The card is hidden while `JAP_SECRET_KEY` is unset.
 
 > **Known problem before launch** (PR 6 load test): 150 free accounts can spend $150 a month
 > plus $5 for descriptions, against a $20 total. Decision D1 in
-> [launch-plan.md](launch-plan.md).
+> [launch-plan.md](../intent/launch-plan.md).
 
 ## Plus and billing (IDEA-21)
 
@@ -73,7 +77,7 @@ characters are ever shown. The card is hidden while `JAP_SECRET_KEY` is unset.
 
 **Not done**: a merchant of record for outside India; and nothing may be sold until terms,
 privacy and refund pages exist and the seller's tax position is settled. See
-[launch-plan.md](launch-plan.md), decision D3.
+[launch-plan.md](../intent/launch-plan.md), decision D3.
 
 ## Other per-account and service-wide limits on applying
 

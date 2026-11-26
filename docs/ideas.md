@@ -2,7 +2,7 @@
 
 The list of what would make public-jap better and is not being built yet. One serial order: an
 `IDEA-N` is assigned when the idea is first recorded, never changes and is never reused, the
-same way `JAP-N` works in `BUGS.md`. A defect goes in `BUGS.md`; something JAP does not do yet
+same way `JAP-N` works in [bugs.md](bugs.md). A defect goes in [bugs.md](bugs.md); something JAP does not do yet
 goes here.
 
 An idea lands here when Aditya says "move to idea" (or "move to ideas") about something raised

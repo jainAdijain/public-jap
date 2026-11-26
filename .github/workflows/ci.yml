@@ -60,12 +60,13 @@ jobs:
       - run: npm run build
 
   agents:
-    name: agent guards (hook self-test, nothing private tracked)
+    name: agent guards (hook self-test, nothing private tracked, docs agree with the code)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: python3 infra/scripts/agent-guard.py --self-test
       - run: infra/scripts/check-tracked.sh
+      - run: python3 infra/scripts/check_docs.py
 
   compose:
     name: compose file is valid

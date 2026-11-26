@@ -1,61 +1,54 @@
 # public-jap docs
 
-This folder is the one place any coding harness (Claude Code, Devin, Codex, Copilot, Cursor,
-Gemini) or person reads to learn what public-jap is for, what state it is in, how it is built,
-how it behaves and what happens next. It is tracked, public and kept in step with the code.
+The one place any coding harness (Claude Code, Devin, Codex, Copilot, Cursor, Gemini) or person
+reads to learn what public-jap is for, where it stands, how it is built and how it behaves. It is
+tracked, public and kept in step with the code in every pull request. The rules for working with
+it are in [`AGENTS.md`](../AGENTS.md) (How work moves).
 
-**Last checked against the code:** `main` at v0.23.0 (26 Nov 2026). PR 6 (`launch`, v0.24.0)
-is open and not merged; where it changes something, the page says so.
+The folder has three parts that must always agree, tied together by requirement ids:
+
+- **Intent**: what we are building and why. Changes least, and wins.
+- **Structure**: how it is built, as the code is today.
+- **Behaviour**: what it does, each rule proved by named tests.
+
+`infra/scripts/check_docs.py` (in `make test-agents` and CI) fails when they come apart.
 
 ## Read in this order
 
-| File | What it answers |
+| Page | Answers |
 | --- | --- |
-| [goal.md](goal.md) | Why public-jap exists, who it is for, and the principles nothing may break |
-| [current-state.md](current-state.md) | What is built, what is in flight, what is known broken, what has never been tried for real |
-| [architecture.md](architecture.md) | The services, the code layout, the data model (shared vs private) and how a request and a background job move |
-| [auth-and-isolation.md](auth-and-isolation.md) | Accounts, sessions, consent, the route classes, the admin, and how one user's data is kept from another's |
-| [plans-and-limits.md](plans-and-limits.md) | Free and Plus, `limits_for`, the three AI budgets, billing through Razorpay |
-| [jobs-pipeline.md](jobs-pipeline.md) | Fetching boards, one row per job, matching, searches, applying, Automatic mode, security codes, cover letters |
-| [privacy-and-data.md](privacy-and-data.md) | What reaches a model, what reaches the logs, export, erasure, retention, files |
-| [operations.md](operations.md) | local and live, releasing, deploying, backups, monitoring, incidents |
-| [decisions.md](decisions.md) | The decisions already taken and why, so they are not re-argued; and the ones still open |
-| [launch-plan.md](launch-plan.md) | The steps from today to open sign-up, with the owner's decisions marked |
+| [state.md](state.md) | Where we are: open phase, versions, in flight (the handoff note), known broken, drift |
+| [intent/goal.md](intent/goal.md) | Why public-jap exists, for whom, principles that must not break, out of scope |
+| [intent/requirements.md](intent/requirements.md) | Every requirement, by area id (`AUTH-1`, `TEN-2`, ...) |
+| [intent/plan.md](intent/plan.md) | The phases, what each delivers, and which one is open |
+| [intent/launch-plan.md](intent/launch-plan.md) | The steps of Phase 6, from today to open sign-up |
+| [intent/decisions.md](intent/decisions.md) | Decisions taken and why; the ones still open |
+| [structure/architecture.md](structure/architecture.md) | Services, diagrams, code layout, data model, how requests and jobs move |
+| [structure/operations.md](structure/operations.md) | local and live, releasing, deploying, backups, monitoring, incidents |
+| [behaviour/traceability.md](behaviour/traceability.md) | Requirement to code to tests, for every requirement |
+| [behaviour/auth-and-isolation.md](behaviour/auth-and-isolation.md) | Accounts, sessions, consent, route classes, the admin, isolation |
+| [behaviour/plans-and-limits.md](behaviour/plans-and-limits.md) | Free and Plus, `limits_for`, the three AI budgets, billing |
+| [behaviour/jobs-pipeline.md](behaviour/jobs-pipeline.md) | Fetching, dedup, matching, searches, applying, security codes |
+| [behaviour/privacy-and-data.md](behaviour/privacy-and-data.md) | What reaches a model and the logs; export, erasure, retention |
+| [glossary.md](glossary.md) | Words that mean one thing here |
+| [ideas.md](ideas.md) | `IDEA-N`: how public-jap may evolve; not planned until moved into the plan |
+| [bugs.md](bugs.md) | `JAP-N`: known bugs and issues |
 
 ## Which document wins
 
-1. **The PRD**, the build plan and the design doc are Aditya's private product documents. They
-   carry personal data, so they live in `docs/private/` on his machine and are never committed
-   (`.gitignore`, `infra/scripts/check-tracked.sh`). Never copy their contents into this folder.
-2. **This folder** describes the product as it is meant to be and as the code actually is.
-   Where it and the PRD disagree, say so in [current-state.md](current-state.md) (PRD drift)
-   rather than quietly following either.
-3. **`README.md`** at the root is the long-form user and operator guide: every screen, every
-   setting, every `make` target. These pages summarise and point at it; they do not repeat
-   every detail.
-4. **`AGENTS.md`** holds the rules for coding agents. **`BUGS.md`** and **`IDEAS.md`** are the
-   numbered defect and idea lists; these pages link to their ids rather than copying them.
+1. **The PRD**, with the build plan and design doc under it. They are Aditya's private product
+   documents and carry personal data, so they live in `docs/intent/sources/` on his machine and
+   are never committed (`.gitignore`, `infra/scripts/check-tracked.sh`). Never copy their
+   contents into a tracked file. [requirements.md](intent/requirements.md) is their public
+   summary.
+2. **`docs/intent/`**, then **`docs/structure/`** and **`docs/behaviour/`**.
+3. **The code.** Code that disagrees with intent is a bug, unless intent is changed first, on
+   purpose.
 
-When the code and a page here disagree, one of them is a bug. Fix whichever is wrong in the
-same pull request, and never leave the page describing behaviour that no longer exists.
+Where two of them disagree, fix the lower one in the same pull request, or record the drift in
+[state.md](state.md) when only Aditya can decide. **`README.md`** at the root is the long-form user
+and operator guide (every screen, setting and `make` target); these pages summarise and point at
+it. Its Version history table is the changelog.
 
-## Keeping it current (every pull request)
-
-A change that alters intent, structure or behaviour updates this folder **in the same pull
-request**. Concretely:
-
-- a new or changed route, setting, table, Inngest function, plan, limit or screen: the page
-  that covers it ([architecture.md](architecture.md) for structure, the behaviour page for
-  what it does);
-- something built, merged, released or found broken: [current-state.md](current-state.md);
-- a choice made between real alternatives: a row in [decisions.md](decisions.md);
-- a launch step done or a new one found: tick or add it in [launch-plan.md](launch-plan.md);
-- bump the "Last checked against the code" line above when you have re-read the pages
-  against the code.
-
-A pure refactor with no change in behaviour, or a test-only change, needs no edit here; say
-so in the PR ("Docs: no change, refactor only"). The PR template asks.
-
-Style: plain sentences, present tense, file paths in backticks, ids (`PRD S14`, `IDEA-21`,
-`JAP-2`) where they exist. No secrets, no addresses of machines, no personal data: this repo is
-public.
+Style: plain sentences, present tense, file paths in backticks, ids where they exist. No secrets,
+no machine addresses, no personal data: this repo is public.
