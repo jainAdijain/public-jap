@@ -8,11 +8,8 @@ been pushed. Update this page whenever something merges, is released, or is foun
 
 Every session updates this before it stops: branch, done, half done, next step, blockers.
 
-### This docs restructure, branch `claude/project-thread-m3j5av` (stacked on PR 7)
-
-Done: `docs/` split into intent, structure and behaviour; requirements with area ids; the phase
-plan; the traceability map; the glossary; `ideas.md` and `bugs.md` moved in; the drift check in
-`make test-agents` and CI. Next: Aditya reviews it with PR 7. Blocked on: nothing.
+`docs/` was arranged as intent, structure and behaviour, with the drift check, in PR 8
+(decision 26). Nothing of it is half done.
 
 ### PR 6, branch `launch`, v0.24.0 (Phase 6)
 
