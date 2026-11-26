@@ -75,7 +75,9 @@ failure is cheap.
 
 - [ ] Fix JAP-2 (a spent OpenRouter key retried until it floods the log): with one shared key
       and many accounts it becomes every account's problem. Close JAP-3 if it is obsolete
-- [ ] Tag `v0.24.0`, push it, watch the Release workflow push both images to GHCR
+- [x] Build the images for arm64 too and give live its own Docker project and ports, so it
+      can run on the ARM VM beside the private JAP (v0.25.2, decision 31)
+- [ ] Tag `v0.25.2`, push it, watch the Release workflow push both images to GHCR
 - [ ] On the server or VM: `server-setup.sh` if not done, a tunnel of the server's own,
       `make env ENV=live`, then the secrets by hand ([operations.md](../structure/operations.md))
 - [ ] Set `JAP_SECRET_KEY` (32 random bytes, base64) in `.env.live`: without it nobody can

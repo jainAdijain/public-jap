@@ -1,8 +1,8 @@
 # State
 
 **As of 26 Nov 2026.** Open phase: **6, public launch** ([plan.md](intent/plan.md)).
-Dev (local) runs `main` at **v0.24.0**. Prod (live) has **never been released**: no `v*` tag has
-been pushed. Update this page whenever something merges, is released, or is found broken.
+Dev (local) runs `main` at **v0.25.1**. Prod (live) has **never been released**: no `v*` tag has
+been pushed. The first release will run on Aditya's ARM VM beside the private JAP (decision 31). Update this page whenever something merges, is released, or is found broken.
 
 v0.24.0 (PR 6, `launch`) brought encrypted backups (IDEA-11: `JAP_BACKUP_AGE_RECIPIENT` pipes
 `pg_dump` through `age`, `make restore KEY=...` takes the private key); a real terms of service
@@ -14,30 +14,35 @@ or down; dependencies locked and hashed (`make lock`, `cryptography` 50); and pi
 audit, gitleaks, Trivy and Dependabot in CI, with the image patched and shipped without pip so
 the scan starts green.
 
-v0.25.0 (branch `claude/project-thread-uyba95`, not merged yet) builds Aditya's stage 2 launch
+v0.25.0 (PR 20) builds Aditya's stage 2 launch
 decisions ([launch-plan.md](intent/launch-plan.md), [decisions.md](intent/decisions.md) 27 to
 30): **no free AI** (`JAP_MONTHLY_COST_CAP_USD` 0, Plus without its $8; an account's AI is its
 own OpenRouter key or credit the admin grants it, and with neither no model is called and the
 screens say so), **Automatic mode per account** at the admin's say-so (`0022_launch_switches`),
 an **invite list** that lets named addresses sign up while sign-up is paused, and Plus kept off
 until real users have tried JAP. New requirements AUTH-11, APPLY-8 and BILL-6, all Proved.
+v0.25.1 (PR 21) fixed JAP-2: a spent OpenRouter key stops the work instead of being retried.
 
 ## In flight
 
 Every session updates this before it stops: branch, done, half done, next step, blockers.
 
-Branch `claude/project-thread-4us4pq` (v0.25.1): JAP-2 fixed, a `403 Key limit exceeded` from
-OpenRouter is now `OutOfCredits` and stops without retrying. In a pull request; tests left to CI.
+Branch `claude/project-thread-gqxdpu` (v0.25.2): stage 3, the first real release. Looking at
+the VM before deploying found two things that would have broken it. The VM is **ARM**
+(aarch64) and the release built only amd64 images; and public-jap's `infra/env/live.env` was a
+copy of the private JAP's, whose live stack already runs on that VM: same Docker project
+`jap-live` (so the same database volume), same ports, same hostname. Fixed in this branch:
+multi-arch images on native runners, and live as `public-jap-live` on 5383 / 8211 / 8491 / 5436
+(decision 31). Next: Aditya picks public-jap's own public hostname (jap.tutorial.monster is the
+private JAP's), merge, tag `v0.25.2`, clone to `/srv/public-jap` on the VM (not
+`server-setup.sh`: the VM is shared), `make env ENV=live`, Aditya fills in the secrets and
+`JAP_ADMIN_EMAIL`, deploy with sign-up paused, then a restore drill. Blocked on Aditya: the
+hostname, a Cloudflare tunnel for the new stack, and either running the live commands himself
+or starting the harness with `JAP_AGENT_ALLOW_LIVE=1` (the guard refuses them otherwise).
 
-Branch `claude/project-thread-uyba95` (v0.25.0, the launch switches): built, tested and in a
-pull request for Aditya to review. Not looked at in a browser: the new Settings > Accounts
-controls (Allow Automatic, Invite, the AI column), the "No AI yet" banner on Jobs and the
-"by invitation" line on the sign-in screen. Next: merge, then stage 3 of the launch plan (fix
-JAP-2, tag, deploy with `JAP_SECRET_KEY` and `JAP_DAILY_APPLICATIONS_TOTAL=50` set, test a
-restore). Still Aditya's: read the final terms wording so `TERMS_VERSION` can be raised once
-(the notice gained one line in v0.25.0, about the invite list), and move the PRD files into
-`docs/intent/sources/`. Plus's prerequisites (postal address, refund page, GST, Razorpay live)
-wait until he decides to sell it.
+Still Aditya's: read the final terms wording so `TERMS_VERSION` can be raised once, and move
+the PRD files into `docs/intent/sources/`. Plus's prerequisites (postal address, refund page,
+GST, Razorpay live) wait until he decides to sell it.
 
 ## Never verified for real
 
@@ -66,7 +71,6 @@ From [bugs.md](bugs.md) (read it for the write-ups):
 
 | Id | What | Matters for launch? |
 | --- | --- | --- |
-| JAP-2 | A spent OpenRouter key is retried until it fills the log | Yes: with one shared key, a spent key would flood every account's work |
 | JAP-3 | The skills Matching preset could never match with no required skills | Probably obsolete: skills stopped filtering in v0.18.0. Check and close |
 | JAP-4 | `JAP_ENV` still says `dev` and `prod` after the local/live rename | No, cosmetic |
 | JAP-7 | The Phase 4 screens have not been looked at | Yes: look before strangers do |

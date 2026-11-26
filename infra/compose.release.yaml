@@ -6,8 +6,8 @@
 # live does not build: `app` and `ui` are the images GitHub Actions pushed to GHCR for a
 # version tag (.github/workflows/release.yml), and `make deploy TAG=vX.Y.Z` checks out that
 # tag and pulls them. JAP_IMAGE_TAG comes from the checked-out tag, so the compose file and
-# the image it runs can never disagree. The images are linux/amd64, which is why the live
-# stack runs on the server and cannot be started on the Mac.
+# the image it runs can never disagree. The images are linux/amd64 and linux/arm64; the
+# Makefile refuses the release stack on a Mac, so live runs on the server and nowhere else.
 #
 # Two services exist only here: ollama, because the Mac runs it natively for the GPU and the
 # server has no GPU to use, and cloudflared, which is how the site is on the internet (H1,

@@ -9,8 +9,8 @@
 #                     people's data
 #
 # local runs on your Mac. **live runs on the server and nowhere else** (README, Hosting):
-# it builds nothing, it runs the images GitHub Actions pushed for a version tag, and those
-# are linux/amd64, so a laptop cannot start it even by accident. On the server a release is
+# it builds nothing, it runs the images GitHub Actions pushed for a version tag, and the
+# release stack refuses to start on a Mac, so a laptop cannot start it even by accident. On the server a release is
 # `make deploy TAG=vX.Y.Z`, which checks out the tag and pulls the images it names.
 ENV ?= local
 ifeq ($(ENV),local)
@@ -60,7 +60,7 @@ endif
 
 start: env ## Start the stack, wait for /api/health, apply migrations
 ifneq ($(RELEASE),)
-	@test "$$(uname)" != Darwin || { echo "live runs on the server, not this Mac (README, Hosting). Its images are linux/amd64 and it holds other people's data."; exit 1; }
+	@test "$$(uname)" != Darwin || { echo "live runs on the server, not this Mac (README, Hosting). It holds other people's data."; exit 1; }
 	@test -n "$(JAP_IMAGE_TAG)" || { echo "No version tag is checked out, so there is no image to run. Release with: make deploy ENV=live TAG=vX.Y.Z"; exit 1; }
 	$(COMPOSE) pull
 	$(COMPOSE) up -d

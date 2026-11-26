@@ -4,7 +4,7 @@
 # Ollama is not here: locally it runs natively on the Mac so it can use the GPU, and live
 # adds it as a container (infra/compose.release.yaml).
 # Run through the Makefile (make start ENV=local|live), which picks the project name
-# (JAP_PROJECT: jap, jap-live) so each environment keeps its own volumes.
+# (JAP_PROJECT: jap, public-jap-live) so each environment keeps its own volumes.
 name: jap
 
 # Docker keeps each container's stdout (JAP's JSON log lines, PRD O3), capped at 5 files of

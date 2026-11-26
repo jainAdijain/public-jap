@@ -1,6 +1,6 @@
 # JAP: Job Application Pipeline
 
-**Version 0.25.1 (a spent OpenRouter key stops instead of retrying, JAP-2), 26 Nov 2026.**
+**Version 0.25.2 (a first release that can run on the ARM VM, beside the private JAP), 26 Nov 2026.**
 
 JAP watches the public job boards of the companies you pick (Greenhouse, Lever and Ashby),
 lists the jobs that match your profile, and prepares or submits applications for you to review.
@@ -602,7 +602,8 @@ is the only place that submits applications, sends email or holds anybody else's
 | Code | this working copy, live reload | the images GitHub Actions built for a version tag |
 | UI | Vite dev server | `npm run build`, served by Caddy, which passes `/api` to the app |
 | Ollama | native on the Mac, for the GPU | a container in the stack, on the CPU |
-| Entry / API / Inngest / DB ports | 5173 / 8001 / 8290 / 5432 | 5373 / 8201 / 8490 / 5434, on 127.0.0.1 and reachable only over SSH |
+| Docker project | `jap` | `public-jap-live` |
+| Entry / API / Inngest / DB ports | 5173 / 8001 / 8290 / 5432 | 5383 / 8211 / 8491 / 5436, on 127.0.0.1 and reachable only over SSH |
 | Data folder | `data/` | `data-live/` |
 | Submits applications | **never** (`JAP_SUBMIT_ENABLED=false`) | **yes, for real** |
 | Sends email | no | yes, the real mailbox |
@@ -612,8 +613,15 @@ is the only place that submits applications, sends email or holds anybody else's
 | UI badge | **DEV** | none |
 
 Every target takes `ENV=local|live`; without it you get local. On the Mac, `ENV=live` is for
-reading and not for running: `make start ENV=live` refuses, because the images are
-`linux/amd64` and because live is other people's data. live's targets run on the server.
+reading and not for running: `make start ENV=live` refuses, because live is other people's
+data. live's targets run on the server. Its images are built for `linux/amd64` and
+`linux/arm64`, so the server can be either.
+
+**The server may be shared.** The first one is Aditya's ARM VM, which also runs the private
+JAP's own live stack and several dev stacks. That is why live's project name and ports are
+not the obvious ones (`infra/env/live.env`): two stacks under one Docker project name share
+one database volume. On a shared machine skip `server-setup.sh`, which closes the firewall
+and changes SSH for everything on it, and clone to `/srv/public-jap` by hand instead.
 
 ### The server
 
@@ -887,6 +895,7 @@ AGENTS.md           the rules for coding agents; CLAUDE.md, .devin/, .claude/, .
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.25.2 | 26 Nov 2026 | The first release is made for the machine it will really run on (decision 31). The Release workflow builds both images for `linux/amd64` **and** `linux/arm64`, each on a runner of its own architecture, and joins them under one tag, because the first server is an ARM VM. live gets a Docker project and ports of its own (`public-jap-live`, 5383 / 8211 / 8491 / 5436): the old ones were a copy of the private JAP's live stack, which runs on that same VM, and a shared project name would have meant a shared database volume. |
 | 0.25.1 | 26 Nov 2026 | Fix JAP-2: OpenRouter's `403 Key limit exceeded` is now treated as out of credits, so a spent key stops the work without retrying instead of flooding the log. Other 403s stay retryable. |
 | 0.25.0 | 26 Nov 2026 | The launch switches (launch plan stage 2, decisions D1 to D4). **No free AI**: `JAP_MONTHLY_COST_CAP_USD` is 0 and Plus no longer carries $8 of AI (`JAP_PLUS_AI_USD` is gone), so an account's AI runs on its own OpenRouter key or on credit the admin grants it in Settings > Accounts; with neither, no model is called and Jobs and Settings say to add a key or ask (`NoAiCredit`). The admin's own AI is bounded by the total. **Automatic mode is the admin's to allow**, account by account (`app_user.may_automatic`, migration `0022_launch_switches`, which moves other accounts on Automatic back to Review); a job is prepared in Review mode whenever the account is not allowed. **An invite list**: while sign-up is paused, only an address the admin added can sign up, by password or by a Google account that vouches for it, and the invite is used up. Plus stays off until real users have tried JAP. |
 | 0.24.0 | 26 Nov 2026 | Ready to be shown to strangers (IDEA-11, IDEA-23, part). **Encrypted backups**: with `JAP_BACKUP_AGE_RECIPIENT` set, `pg_dump` goes through `age` on its way to disk and the server holds only the public key, so neither it nor anyone who takes the hosting account can read its own backups. **Terms of service and a privacy notice** carrying what Article 13 and the DPDP Act ask for, including Razorpay for those who pay for Plus; the page calls itself a draft until the four operator facts in `frontend/src/legal.ts` are filled in, and every claim in it is a test (`test_privacy_claims.py`). Everyone is asked to agree again (`TERMS_VERSION` 2026-11-22). **`make load-test`** builds 150 accounts and reports against fixed budgets: the first ceiling is the AI money, not the machine. **Security**: `/api/health` tells a stranger only whether it is up; dependencies pinned and hashed in `requirements.lock` (`make lock`); pip-audit, npm audit, gitleaks and Trivy in CI, Dependabot behind them; `security.txt`. |
