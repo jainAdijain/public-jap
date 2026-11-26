@@ -37,7 +37,7 @@ refused with 403, sign-in, Jobs and Settings fine in a browser with no CSP error
 drill passed**: an encrypted dump from `pipeline.backup.run_backup`, decrypted and loaded into a
 scratch database, identical row counts in all 31 tables, a wrong key refused.
 
-Found and fixed on branch `claude/project-thread-gqxdpu-2` (v0.25.3): the release stack named
+Found and fixed on branch `claude/project-thread-gqxdpu` (v0.25.3): the release stack named
 `ollama/ollama:0.12.12`, which was never published (now 0.12.11, and CI checks every pulled
 image exists for both architectures); `age` was not on the server, which restoring an
 encrypted dump there needs; and the first-start steps now say to create the admin and pause
