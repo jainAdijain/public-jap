@@ -2,7 +2,7 @@
 
 Taken decisions, so they are not re-argued, and the ones still open. Add a row when a pull
 request chooses between real alternatives. Newest at the bottom of each table. The full
-reasoning usually sits in the PR, `README.md` version history or `IDEAS.md`.
+reasoning usually sits in the PR, `README.md` version history or [ideas.md](../ideas.md).
 
 ## Taken
 
@@ -31,7 +31,9 @@ reasoning usually sits in the PR, `README.md` version history or `IDEAS.md`.
 | 21 | Security codes matched by recipient address, one per account | "newest code in the mailbox" would cross accounts once applications run side by side | v0.22.0, IDEA-16 |
 | 22 | An outbound proxy per user is a seam only (`JAP_APPLY_PROXY`) | costs money per account; build it when the per-site refusal rates say so | IDEA-18 |
 | 23 | Full-disk encryption dropped; dumps encrypted with `age` instead (PR 6) | the key would have to live on an unattended machine | IDEA-11 |
-| 24 | Product documents (PRD etc.) stay private in `docs/private/`; this folder is the public, tracked description | the repo is public and the PRD carries personal data; harnesses still need one readable source | this folder |
+| 24 | Product documents (PRD etc.) stay private in `docs/intent/sources/`; `docs/` is the public, tracked description | the repo is public and the PRD carries personal data; harnesses still need one readable source | `docs/`, `.gitignore` |
+| 25 | Versions come from git tags only; two environments, dev (local) and prod (live); 1.0.0 is the first public launch | one place for the number ends the forgotten fourth file and the clash between parallel branches; a tag is already the release (16) | OPS-5, [plan.md](plan.md) Phase 6 |
+| 26 | `docs/` follows the project docs framework: intent, structure, behaviour, requirement ids by area, one open phase, a drift check in CI | any harness can pick the work up; code, tests and docs can be checked against each other | `AGENTS.md`, `infra/scripts/check_docs.py` |
 
 ## Open (owner's call)
 

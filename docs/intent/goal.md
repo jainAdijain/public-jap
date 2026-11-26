@@ -18,7 +18,7 @@ Open JAP to the public safely. In order of importance:
    searches, applications, files and AI spend belong to one account. What one user does
    never changes another user's list, and nothing one user owns is ever shown to another,
    including the admin. Enforced twice: in the application and in Postgres row-level security
-   ([auth-and-isolation.md](auth-and-isolation.md)).
+   ([auth-and-isolation.md](../behaviour/auth-and-isolation.md)).
 2. **Many people can sign up and use it at once** without waiting on each other: open sign-up
    with email confirmation or Google, searches and applications side by side per account,
    pacing across the whole service so job sites see a well-behaved client.

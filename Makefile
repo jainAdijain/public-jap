@@ -146,9 +146,10 @@ test-host: ## The checks of `make test` on this machine, without the stack (clou
 	cd frontend && npm run lint && npm run build
 	@$(MAKE) --no-print-directory test-agents
 
-test-agents: ## The coding-agent guards: hook self-test, and nothing private is tracked
+test-agents: ## The coding-agent guards: hook self-test, nothing private is tracked, docs agree with the code
 	@python3 infra/scripts/agent-guard.py --self-test
 	@infra/scripts/check-tracked.sh && echo "check-tracked: nothing private is tracked"
+	@python3 infra/scripts/check_docs.py
 
 hooks: ## Turn on the pre-commit check for this clone (git config core.hooksPath .githooks)
 	git config core.hooksPath .githooks

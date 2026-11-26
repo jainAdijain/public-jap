@@ -30,6 +30,16 @@ compose files. PR 6 adds pip-audit, npm audit, gitleaks and Trivy.
 
 ## Releasing and deploying
 
+**Versions** (decision 25): two environments, dev (local) and prod (live), and the version comes
+from git tags only. Patch is a fix; minor a feature, setting or backwards-compatible migration;
+major breaks a contract, needs an irreversible migration or a manual step. Before 1.0 minor also
+carries breaking changes, and **1.0.0 is the first public launch**. A dev build is named from the
+last tag (`0.23.1-dev.7+g<sha>`); prod runs only a `vX.Y.Z` tag. Each PR states its bump and one
+release-notes line; the release takes the largest. A migration must work with the version before
+it, so rollback stays one command. **Not built yet (OPS-5):** until it is, the version is still
+edited in the four places `AGENTS.md` lists.
+
+
 A version tag is the release.
 
 1. Merge to `main` with `make test` green and the version bumped in the four places
@@ -42,7 +52,7 @@ A version tag is the release.
 5. **Rollback** is the same command with the previous tag; restore a dump too if a migration
    changed data.
 
-**No tag has been pushed yet**, so steps 2 and 4 have never run ([current-state.md](current-state.md)).
+**No tag has been pushed yet**, so steps 2 and 4 have never run ([state.md](../state.md)).
 
 ### First-time server setup
 

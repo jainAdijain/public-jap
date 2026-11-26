@@ -2,6 +2,26 @@
 
 ## Services
 
+```mermaid
+flowchart LR
+  browser([Browser]) --> cf[Cloudflare] --> tunnel[cloudflared]
+  tunnel --> ui["ui: Caddy + React bundle"]
+  ui -- "/api" --> app["app: FastAPI, JAP_ROLE=api"]
+  app -- "send event" --> inngest[inngest]
+  inngest -- "/api/inngest" --> worker["worker: same image, JAP_ROLE=worker, Chromium"]
+  app --> db[(Postgres + pgvector)]
+  worker --> db
+  worker --> ollama[Ollama embeddings]
+  worker -- "llm/client.py only" --> openrouter[OpenRouter]
+  worker --> boards[Greenhouse, Lever, Ashby]
+  worker --> mail[SMTP / IMAP mailbox]
+  app -- "redirect" --> razorpay[Razorpay checkout]
+  razorpay -- "signed webhook" --> app
+```
+
+Live, as above. Locally there is no Cloudflare or tunnel: the browser reaches the Vite dev server
+on :5173 and `app` on :8001 directly, Ollama runs natively on the Mac, and Adminer is added.
+
 One Docker Compose stack (`infra/compose.yaml`), with a release overlay for live
 (`infra/compose.release.yaml`).
 
@@ -69,7 +89,7 @@ infra/               compose files, Dockerfiles, Caddyfile, env/live.env, postgr
                      scripts/ (deploy, server-setup, backup, restore, vm-sync, worktree,
                      agent-guard, check-tracked, agent-setup)
 seed/                companies.yaml, skills.yaml
-docs/                this folder
+docs/                this folder; docs/intent/sources/ is the gitignored PRD and friends
 ```
 
 ## Data model: shared facts, private people
@@ -99,6 +119,21 @@ left out of either.
 
 ## How a request moves
 
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant C as Caddy (ui)
+  participant A as app
+  participant P as Postgres
+  B->>C: /api/... (session cookie)
+  C->>A: proxied
+  A->>A: RequestLog (X-Request-ID), guards (Origin, Sec-Fetch-Site)
+  A->>A: current_user / agreed_user / admin_user
+  A->>P: SET app.user_id, role jap_app
+  P-->>A: only this user's rows (row-level security)
+  A-->>B: Pydantic model, or ApiError(status, code, sentence)
+```
+
 Browser → Cloudflare → `cloudflared` → Caddy (`ui`) → `app` `/api/...`
 
 1. `RequestLog` gives it an `X-Request-ID` and times it; `guards` refuse a write that began
@@ -112,6 +147,15 @@ Browser → Cloudflare → `cloudflared` → Caddy (`ui`) → `app` `/api/...`
    `ApiError(status, code, sentence)`.
 
 ## How background work moves
+
+```mermaid
+flowchart LR
+  route[app route] -- "event with user_id" --> inngest[inngest]
+  cron[cron in JAP_TZ] --> inngest
+  inngest --> worker[worker /api/inngest]
+  worker -- "as_user() or as_system()" --> fn[function in backend/functions/]
+  fn --> logic[business logic in backend/pipeline/]
+```
 
 A route sends an Inngest event; `inngest` calls `worker` at `/api/inngest`; the function's
 tenant comes from the event (`observability/inngest_mw.py`) or is declared with `as_user()` /

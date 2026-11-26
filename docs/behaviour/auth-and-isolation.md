@@ -1,5 +1,9 @@
 # Accounts, sign-in and data isolation
 
+**Requirements:** AUTH-1 to AUTH-10, TEN-1 to TEN-8, CONSENT-1 to CONSENT-3 ([requirements.md](../intent/requirements.md)). The tests that
+prove each one are in [traceability.md](traceability.md); a rule here with no test is a gap
+there.
+
 The long-form version is `README.md` (Sign-in and accounts; What you agree to). Code:
 `backend/auth/`, `backend/api/auth.py`, `backend/api/account.py`, `backend/database/tenant.py`,
 migrations `0007_auth`, `0011_tenancy`, `0012_email_verify`, `0013_rls`, `0015_consent`,
@@ -52,7 +56,7 @@ Every router is registered in `backend/main.py` in exactly one class:
 
 `/api/inngest` is mounted only on the worker and answers only direct calls from inside Docker,
 never a request with proxy headers. The open set is pinned by `tests/test_auth.py`; adding to
-it is a decision, recorded in [decisions.md](decisions.md).
+it is a decision, recorded in [decisions.md](../intent/decisions.md).
 
 ## How one user's data is kept from another's
 

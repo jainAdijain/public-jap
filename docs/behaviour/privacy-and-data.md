@@ -1,5 +1,9 @@
 # Privacy and data
 
+**Requirements:** PRIV-1 to PRIV-3, DATA-1 to DATA-4 ([requirements.md](../intent/requirements.md)). The tests that
+prove each one are in [traceability.md](traceability.md); a rule here with no test is a gap
+there.
+
 Code: `backend/llm/redact.py`, `backend/llm/call.py`, `backend/observability/scrub.py`,
 `backend/pipeline/erasure.py`, `backend/pipeline/retention.py`, `backend/api/account.py`,
 `backend/pipeline/storage.py`. Long form: `README.md` (Your data, back or gone; Personal data

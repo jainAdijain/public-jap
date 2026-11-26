@@ -1,5 +1,9 @@
 # Jobs: fetching, matching, searching and applying
 
+**Requirements:** JOBS-1 to JOBS-8, APPLY-1 to APPLY-7, TEN-7 ([requirements.md](../intent/requirements.md)). The tests that
+prove each one are in [traceability.md](traceability.md); a rule here with no test is a gap
+there.
+
 The long form, screen by screen, is `README.md` (Fetching jobs to Greenhouse security codes).
 This page is the behaviour in one place, with where it lives.
 
@@ -78,7 +82,7 @@ submits.
 unless the work mode is unclear (waits at Ready for review with the reason), something needs
 the person (Needs input), or the job is below the **required-skills bar** (default 60%, not
 prepared). Mode is fixed when a job is prepared. Whether Automatic mode is offered to the
-public at all is open (IDEA-20; decision D2 in [launch-plan.md](launch-plan.md)).
+public at all is open (IDEA-20; decision D2 in [launch-plan.md](../intent/launch-plan.md)).
 
 **Limits** are in [plans-and-limits.md](plans-and-limits.md): daily cap, gaps per account and
 per ATS, service-wide ceiling, browsers at once, Pause sending.
