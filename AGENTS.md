@@ -4,23 +4,51 @@ JAP (Job Application Pipeline) watches the public job boards of companies you fo
 (Greenhouse, Lever, Ashby), lists the jobs that match your profile, and prepares or submits
 applications for you to review.
 
-`README.md` is the long-form description of every behaviour and is kept current — read the
-section that covers whatever you are changing before you change it. PRD ids (`A5`, `S6`, `H4`,
-`O12`, `U8`) are used all over the code and in commit messages.
+**Start with [`docs/`](docs/README.md).** It is the tracked, public description of the
+project that every harness reads: the goal, the current state, the architecture, how auth,
+data isolation, plans and limits, the jobs pipeline and privacy behave, operations, the
+decisions already taken, and the launch plan. `docs/README.md` says what to read in which
+order.
 
-The PRD is the source of truth, with the build plan and engineering design doc under it. They
-live in `docs/` and are **not in git**: this repo is public and they carry personal data.
+`README.md` is the long-form user and operator guide (every screen, setting and `make`
+target) and is kept current too — read the section that covers whatever you are changing
+before you change it. PRD ids (`A5`, `S6`, `H4`, `O12`, `U8`) are used all over the code and in
+commit messages.
 
-- List `docs/` first rather than reaching for a fixed filename — the names and the format
-  depend on how the documents were last exported. Today it holds PDF exports of the PRD, the
-  build plan, the engineering design doc, the hosting plan and the ideas list, with the text of
-  each pulled out alongside in `docs/text/`. Read the text, and open the PDF when a diagram or
-  the shape of a table matters.
-- The PDF is the document; `docs/text/` is a `pypdf` extraction of it, so diagrams are gone and
+## Keeping docs/ in step (every pull request)
+
+`docs/` must describe the code's intent, structure and behaviour as they are after your
+change. **Update it in the same pull request as the change**, never in a later one:
+
+- a new or changed route, setting, table, Inngest function, plan, limit or screen goes into
+  the page that covers it (`docs/architecture.md` for structure, the behaviour page for what
+  it does);
+- something merged, released or found broken goes into `docs/current-state.md`;
+- a choice between real alternatives becomes a row in `docs/decisions.md`;
+- a launch step done or discovered is ticked or added in `docs/launch-plan.md`.
+
+A refactor or test-only change with no change in behaviour needs no edit; say "Docs: no
+change" in the PR. If you find a page that disagrees with the code, fix whichever one is wrong
+in the same PR and do not leave the disagreement for later. `docs/` is public: no secrets, no
+machine addresses, no personal data, and nothing copied from the private documents below.
+
+## The private product documents
+
+The PRD is the product's source of truth, with the build plan and engineering design doc under
+it. They live in `docs/private/` on Aditya's machine and are **not in git**: this repo is
+public and they carry personal data. (`.gitignore` also ignores any PDF and `docs/text/`
+anywhere under `docs/`, for copies that still sit at its top.)
+
+- List `docs/private/` first rather than reaching for a fixed filename — the names and the
+  format depend on how the documents were last exported. Today it holds PDF exports of the PRD,
+  the build plan, the engineering design doc, the hosting plan and the ideas list, with the
+  text of each pulled out alongside in `docs/private/text/`. Read the text, and open the PDF
+  when a diagram or the shape of a table matters.
+- The PDF is the document; `text/` is a `pypdf` extraction of it, so diagrams are gone and
   tables arrive flattened to one cell per line. Rebuild it after a fresh export:
 
   ```bash
-  cd docs && uv run --with pypdf python -c '
+  cd docs/private && uv run --with pypdf python -c '
   import pathlib, re, pypdf
   for p in pathlib.Path(".").glob("*.pdf"):
       t = "\n".join(pg.extract_text() or "" for pg in pypdf.PdfReader(str(p)).pages)
@@ -33,10 +61,13 @@ live in `docs/` and are **not in git**: this repo is public and they carry perso
 - The documents carry their own versions and they drift apart. Check the line under each title
   before you trust it: the design doc and the build plan each say which PRD version they follow,
   and the design doc also names the code version it describes. Where they disagree the PRD wins,
-  so say that the older document is behind rather than quietly following it.
-- If `docs/` is empty or absent you are on a machine without it. Work from `README.md`, and say
-  that the PRD was unavailable rather than guessing at the meaning of a PRD id you cannot read.
-- Never copy the contents of `docs/` into a tracked file, a commit message or a PR body.
+  so say that the older document is behind rather than quietly following it. Where the PRD and
+  `docs/` disagree, record it under "Drift between documents" in `docs/current-state.md`.
+- If `docs/private/` is empty or absent you are on a machine without it. Work from `docs/` and
+  `README.md`, and say that the PRD was unavailable rather than guessing at the meaning of a PRD
+  id you cannot read.
+- Never copy the contents of `docs/private/` into a tracked file (including `docs/*.md`), a
+  commit message or a PR body.
 
 ## Harnesses
 
@@ -54,9 +85,10 @@ other files only make a harness read this one, or enforce what it says.
 - `infra/scripts/agent-guard.py` is the hook Devin and Claude Code run before a tool call. It
   refuses reading a secrets file, printing rendered compose config, and anything aimed at the
   live stack. Change a rule there and add a case to its `CASES`, not in one harness's config.
-- `infra/scripts/check-tracked.sh` refuses a commit that carries a secrets file, `docs/`,
-  `data/`, a `*.local.*` file or something shaped like an OpenRouter key. `make hooks` turns it
-  on for a clone; CI runs it regardless. `make test-agents` runs both self-checks.
+- `infra/scripts/check-tracked.sh` refuses a commit that carries a secrets file, anything in
+  `docs/` but a Markdown page (`docs/private/`, `docs/text/`, a PDF), `data/`, a `*.local.*`
+  file or something shaped like an OpenRouter key. `make hooks` turns it on for a clone; CI
+  runs it regardless. `make test-agents` runs both self-checks.
 - Anything an agent needs to do is a `make` target, not a skill or command that only one
   harness has. A rule goes in this file, never in a harness's own rules folder.
 - Personal overrides go in `AGENTS.local.md`, `.devin/config.local.json` or
@@ -100,6 +132,8 @@ seed/               companies.yaml, skills.yaml
 backend/            main.py, config.py, api/, schemas/, database/ (+migrations/), sources/,
                     pipeline/, llm/, functions/ (Inngest), observability/, auth/, tests/
 frontend/           src/pages, src/components, src/api/client.ts
+docs/               tracked: the project docs every harness reads (start at docs/README.md);
+                    docs/private/ is gitignored: the PRD and the other product documents
 data/               gitignored: resumes, screenshots, cover letters, traces, backups
 ```
 
@@ -162,8 +196,9 @@ make test-host              # the same checks as make test, run on this machine
 - Database tests **fail** rather than skip when Postgres is missing (`JAP_REQUIRE_DB=1`), so a
   green run means they ran. One skip is expected: the `pg_dump` test, when no matching client
   is installed.
-- There is no Ollama, no `docs/` and no running app. Say so when a task needs one of them
-  (checking a screen by hand, reading a PRD id) instead of guessing.
+- There is no Ollama, no `docs/private/` and no running app (`docs/*.md` is there: it is
+  tracked). Say so when a task needs one of them (checking a screen by hand, reading a PRD id)
+  instead of guessing.
 - Do not run `make start` in a second checkout on the Mac to get a stack for tests: without its
   own `.env` it takes the project name and ports of the stack that is already running.
 
@@ -218,7 +253,9 @@ still passes locally.
   submit to a real job site.
 - **Auth:** every `/api` route is behind a session except `/api/health`, `/api/auth/*`,
   `/api/inbound/email` and `/api/webhooks/*`. New routers are registered in `main.py` inside
-  the `dependencies=[Depends(current_user)]` loop. `/api/inngest` answers only direct calls
+  the `dependencies=[Depends(agreed_user)]` loop (signed in and agreed to the current notice);
+  only `account` (export and delete) takes `current_user`, and admin routers take
+  `admin_user`. `/api/inngest` answers only direct calls
   from inside Docker. `/api/inbound/email` takes a security code from a mail service that
   cannot sign in, so it carries `JAP_INBOUND_SECRET` instead and is off (404) without one.
   `/api/webhooks/{provider}` is posted to by a payment provider's server, which cannot sign
@@ -313,8 +350,8 @@ describe it in the PR instead, see Several agents at once): a row in the table a
 saying what it is, why it came up, what is already known about how to build it, and anything
 still to decide. Do not start building it. An idea becomes work only when Aditya says so.
 
-This list is tracked and public. The private ideas document in `docs/` is a separate thing and
-is never copied into it.
+This list is tracked and public. The private ideas document in `docs/private/` is a separate
+thing and is never copied into it.
 
 ## Releases
 
