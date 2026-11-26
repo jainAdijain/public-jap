@@ -11,7 +11,7 @@ FROM deps AS build
 COPY frontend/ ./
 RUN npm run build
 
-FROM caddy:2.10-alpine AS release
+FROM caddy:2.11-alpine AS release
 COPY infra/caddy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /ui/dist /srv
 EXPOSE 8080
