@@ -207,7 +207,7 @@ business logic in `pipeline/`, as before; nothing else changes about where code 
 
 Every target takes `ENV=local|live`. `local` is the dev stack on this Mac (`.env`, `data/`,
 never submits). **`live` is the server** (`.env.live`, `data-live/`, submits for real,
-jap.tutorial.monster): it runs the images a version tag built (`linux/amd64` and `linux/arm64`, Docker project
+jobs.tutorial.monster): it runs the images a version tag built (`linux/amd64` and `linux/arm64`, Docker project
 `public-jap-live`), and its targets run on the server over SSH, not here. `make start ENV=live` on a Mac refuses.
 Leave `ENV` off unless the task is about hosting, and never run anything with `ENV=live`
 without being asked.

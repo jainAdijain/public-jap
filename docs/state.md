@@ -1,8 +1,8 @@
 # State
 
-**As of 26 Nov 2026.** Open phase: **6, public launch** ([plan.md](intent/plan.md)).
-Dev (local) runs `main` at **v0.25.1**. Prod (live) has **never been released**; `v0.25.2` is the
-first tag pushed, rehearsed on the VM. The first release will run on Aditya's ARM VM beside the private JAP (decision 31). Update this page whenever something merges, is released, or is found broken.
+**As of 27 Nov 2026.** Open phase: **6, public launch** ([plan.md](intent/plan.md)).
+Dev (local) runs `main` at **v0.25.3**. Prod (live) runs **v0.25.3** at https://jobs.tutorial.monster
+(released 27 Nov 2026, on Aditya's ARM VM beside the private JAP, decisions 31 and 32). Update this page whenever something merges, is released, or is found broken.
 
 v0.24.0 (PR 6, `launch`) brought encrypted backups (IDEA-11: `JAP_BACKUP_AGE_RECIPIENT` pipes
 `pg_dump` through `age`, `make restore KEY=...` takes the private key); a real terms of service
@@ -27,27 +27,20 @@ v0.25.1 (PR 21) fixed JAP-2: a spent OpenRouter key stops the work instead of be
 
 Every session updates this before it stops: branch, done, half done, next step, blockers.
 
-Stage 3, the first real release. **v0.25.2 is tagged** and the Release workflow pushed both
-images for amd64 and arm64 (PR 22: decision 31, live as `public-jap-live` on its own ports,
-because the private JAP's live stack runs on the same ARM VM). **It was rehearsed on the VM**
-as a non-live stack (`jap-rehearsal`, ports 5393 / 8221 / 8492 / 5437, no submits, no alerts, no
-tunnel): images pulled, all six services healthy, `/api/health` green on all four checks,
-migrations at `0022`, the admin account created and sign-up paused, a stranger's sign-up
-refused with 403, sign-in, Jobs and Settings fine in a browser with no CSP errors. **Restore
-drill passed**: an encrypted dump from `pipeline.backup.run_backup`, decrypted and loaded into a
-scratch database, identical row counts in all 31 tables, a wrong key refused.
+**Live is released.** v0.25.3 runs at https://jobs.tutorial.monster (decision 32) on the ARM VM
+beside the private JAP, as Docker project `public-jap-live`, deployed 27 Nov 2026. Every service
+is healthy, the tunnel is connected, Caddy sends the CSP and HSTS headers, the admin account
+exists and sign-up is paused (checked from outside). The first deploy and the rehearsal before
+it are in [operations.md](structure/operations.md).
 
-Found and fixed on branch `claude/project-thread-gqxdpu` (v0.25.3): the release stack named
-`ollama/ollama:0.12.12`, which was never published (now 0.12.11, and CI checks every pulled
-image exists for both architectures); `age` was not on the server, which restoring an
-encrypted dump there needs; and the first-start steps now say to create the admin and pause
-sign-up before the hostname exists.
-
-Next: merge, tag `v0.25.3`, then live. Blocked on Aditya: public-jap's own hostname
-(jap.tutorial.monster stays the private JAP's), a Cloudflare tunnel and the secrets in
-`.env.live`, and either running the live commands himself or starting the harness with
-`JAP_AGENT_ALLOW_LIVE=1`. The rehearsal stack is still running on the VM for him to look at;
-`docker compose -p jap-rehearsal ... down -v` in `~/projects/public-jap-rehearsal` removes it.
+Branch `claude/project-thread-gqxdpu`: the docs and `infra/env/live.env` brought up to the real
+hostname. Next, all Aditya's (agents stay off live): run the live restore drill, which turns
+on `JAP_BACKUP_AGE_RECIPIENT` and restores one encrypted dump into a scratch database (until
+then the daily dumps on live are **not encrypted**); create JAP's own mailbox and add it, since
+without one a new account cannot get its verification email; the rate-limit rule on
+`/api/auth/*` and an uptime check; then invite the first people (stage 4 and 5). Still to run:
+`make ollama-check` and `make llm-check` on live. The rehearsal stack `jap-rehearsal` still runs
+on the VM and can be taken down.
 
 Still Aditya's: read the final terms wording so `TERMS_VERSION` can be raised once, and move
 the PRD files into `docs/intent/sources/`. Plus's prerequisites (postal address, refund page,
@@ -61,14 +54,14 @@ has **never** been exercised end to end, as recorded in the PRs:
 | Thing | Status |
 | --- | --- |
 | Release workflow (`.github/workflows/release.yml`) | Ran for `v0.25.2`: both images, amd64 and arm64, in GHCR |
-| `make deploy`, `infra/scripts/server-setup.sh`, the release overlay started for real | Release overlay started for v0.25.2 on the VM as a rehearsal (by hand, not `make deploy`); `make deploy` and `server-setup.sh` never run |
+| `make deploy`, `infra/scripts/server-setup.sh`, the release overlay started for real | `make deploy` ran for v0.25.3 on live (27 Nov 2026); `server-setup.sh` never run (the VM is shared) |
 | Content-Security-Policy from Caddy in a real browser | Never checked (sign-up page with Turnstile is the one to check) |
 | Google sign-in against Google | Never: no OAuth client yet, tested against a stand-in |
 | Razorpay checkout and webhook against Razorpay | Never: tested with Razorpay replaced in memory |
 | A real mailbox forward of a Greenhouse code; an inbound-email provider | Never |
 | `make capacity` on real applications | Only the empty case |
 | The Phase 4 screens in a browser | Not looked at (JAP-7) |
-| Restoring a backup | Drilled on the v0.25.2 rehearsal stack (encrypted, 31 tables identical); not yet on live |
+| Restoring a backup | Drilled on the v0.25.2 rehearsal stack (encrypted, 31 tables identical); not yet on live, where dumps are not encrypted yet |
 
 Whether a live stack is running today, and on which version, is not visible from the
 repository. Day-to-day Docker stacks run on a VM (`make vm-sync`), because the Mac no longer

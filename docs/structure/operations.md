@@ -9,7 +9,7 @@ folder.
 | | local | live |
 | --- | --- | --- |
 | Where | the dev stack (on the Mac, or on the VM via `make vm-sync`) | one Linux server or VM, always on |
-| Address | http://localhost:5173 | https://jap.tutorial.monster, through a Cloudflare Tunnel |
+| Address | http://localhost:5173 | https://jobs.tutorial.monster, through a Cloudflare Tunnel |
 | Env file | `.env` | `.env.live`, on the server only |
 | Code | the working copy | the images a `v*` tag built, from GHCR |
 | Submits / sends email | **never** (`JAP_SUBMIT_ENABLED=false`) | yes, for real |
@@ -73,6 +73,17 @@ a dirty checkout and checks tags out. live is Docker project `public-jap-live` o
 5383 / 8211 / 8491 / 5436, clear of the private JAP's `jap-live` on 5373 / 8201 / 8490 /
 5434: one project name would be one database volume (decision 31). Install `age` on it
 (`server-setup.sh` does), since `make restore KEY=...` decrypts where it runs.
+
+**The first live deploy (27 Nov 2026, v0.25.3).** Agents stay off live (decision 32), so it
+went: an agent cloned `/srv/public-jap` and installed `age`; Aditya ran a script that writes
+`.env.live` (`make env ENV=live`), asks for each secret without echoing it, generates
+`JAP_SECRET_KEY`, sets `JAP_UI_URL` and `CORS_ORIGINS` to the hostname, and runs
+`make deploy`. The tunnel token is the long string after `--token` in the Docker install
+command Cloudflare shows, starting `eyJ`; the **tunnel ID** (a UUID) looks like it and is
+not it, and with it `cloudflared` restarts with exit 255 and the site does not answer. The
+route is a published application route: `jobs.tutorial.monster` to `http://ui:8080`.
+Live only accepts writes from its own origin, so the admin account is created on the
+public address, not over an SSH tunnel.
 
 **The very first start** has an empty database, and sign-up is open until an admin
 pauses it. Create the admin account (only `JAP_ADMIN_EMAIL` can be the first) over an SSH

@@ -73,7 +73,7 @@ Decided by Aditya on 26 Nov 2026 and built in v0.25.0 ([decisions.md](decisions.
 Nothing below has run before: no `v*` tag has ever been pushed. Do it in this order so a
 failure is cheap.
 
-- [ ] Fix JAP-2 (a spent OpenRouter key retried until it floods the log): with one shared key
+- [x] Fix JAP-2 (v0.25.1; JAP-3 still to check) (a spent OpenRouter key retried until it floods the log): with one shared key
       and many accounts it becomes every account's problem. Close JAP-3 if it is obsolete
 - [x] Build the images for arm64 too and give live its own Docker project and ports, so it
       can run on the ARM VM beside the private JAP (v0.25.2, decision 31)
@@ -82,21 +82,25 @@ failure is cheap.
 - [x] Rehearse the release on the VM as a non-live stack: images pulled, every service
       healthy, migrations at head, admin then pause, a stranger refused, an encrypted
       dump restored into a scratch database (v0.25.2; the missing Ollama tag fixed in v0.25.3)
-- [ ] On the server or VM: `server-setup.sh` if not done, a tunnel of the server's own,
-      `make env ENV=live`, then the secrets by hand ([operations.md](../structure/operations.md))
-- [ ] Set `JAP_SECRET_KEY` (32 random bytes, base64) in `.env.live`: without it nobody can
+- [x] On the server or VM: `server-setup.sh` if not done, a tunnel of the server's own,
+      `make env ENV=live`, then the secrets by hand (27 Nov 2026: a shared VM, so a hand
+      clone to `/srv/public-jap` and `age` instead of `server-setup.sh`; the tunnel is its own) ([operations.md](../structure/operations.md))
+- [x] Set `JAP_SECRET_KEY` (32 random bytes, base64) in `.env.live`: without it nobody can
       save their own OpenRouter key, and after D1 that is the only AI most accounts have
-- [ ] Set `JAP_ADMIN_EMAIL` **before** the first start, so the first account (the admin) can
+- [x] Set `JAP_ADMIN_EMAIL` **before** the first start, so the first account (the admin) can
       only be yours; then create it
-- [ ] `make deploy ENV=live TAG=v0.24.0`; `/api/health` green on all four checks;
-      `make ollama-check` (embedding on CPU) and `make llm-check`
+- [x] `make deploy ENV=live TAG=v0.25.3`; `/api/health` green on all four checks (27 Nov
+      2026). Still to run: `make ollama-check` and `make llm-check`
 - [ ] `JAP_BACKUP_AGE_RECIPIENT` set; Settings > Status says encryption is on; one encrypted
       dump **restored** into a scratch database and checked; `make backup-pull` works from the Mac
 - [ ] `make email-test` from live, and check SPF/DKIM so verify and reset emails do not land
       in spam
-- [ ] Only now add the public hostname in Cloudflare, with a rate-limit rule on `/api/auth/*`
+- [x] Only now add the public hostname in Cloudflare (`jobs.tutorial.monster`, decision 32);
+      admin created and sign-up paused straight after
+- [ ] The rate-limit rule on `/api/auth/*`
 - [ ] Open the site in a browser with devtools: the CSP does not block anything on sign-in,
-      sign-up (Turnstile) and the main screens
+      sign-up (Turnstile) and the main screens (no CSP errors on the rehearsal; live sends
+      the CSP and HSTS headers; Turnstile is not configured yet)
 - [ ] Uptime check from outside on `/api/health` every 5 minutes, matching `"ok":true`
 - [ ] Optional: `SENTRY_DSN`; Google sign-in with a real OAuth client, tried once
 
