@@ -5,7 +5,7 @@
 # folder and ports.
 #
 #   local  .env       this working copy with live reload, never submits, not on the internet
-#   live   .env.live  the server at jap.tutorial.monster: submits, sends email, holds other
+#   live   .env.live  the server at jobs.tutorial.monster: submits, sends email, holds other
 #                     people's data
 #
 # local runs on your Mac. **live runs on the server and nowhere else** (README, Hosting):

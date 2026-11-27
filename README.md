@@ -511,7 +511,7 @@ nothing; the only data that leaves is redacted errors sent to Sentry, and only w
   `SENTRY_DSN` and restart. Only errors are sent, with no request bodies, cookies, headers or
   local variables, and every message scrubbed.
 - **Uptime from outside** (O7): once live is public, add a free uptime check (a Cloudflare
-  health check, or a free monitor such as UptimeRobot) on `https://jap.tutorial.monster/api/health`
+  health check, or a free monitor such as UptimeRobot) on `https://jobs.tutorial.monster/api/health`
   every 5 minutes, emailing you when it fails. It works even when the Mac is asleep.
   `/api/health` is open, because a monitor cannot sign in, but **what it says depends on who
   asks** (IDEA-23): a stranger — anything arriving through the tunnel — gets `{"ok": true}`
@@ -597,7 +597,7 @@ is the only place that submits applications, sends email or holds anybody else's
 | | local | live |
 | --- | --- | --- |
 | Where | your Mac | the server |
-| Address | http://localhost:5173 | https://jap.tutorial.monster |
+| Address | http://localhost:5173 | https://jobs.tutorial.monster |
 | Env file | `.env` | `.env.live`, on the server and nowhere else |
 | Code | this working copy, live reload | the images GitHub Actions built for a version tag |
 | UI | Vite dev server | `npm run build`, served by Caddy, which passes `/api` to the app |
@@ -672,12 +672,12 @@ not even the UI port needs publishing (H2).
    public hostname yet. A `route_stat does not exist` line in the log on this very first
    start is the request counter flushing before the migrations ran, and does not repeat.
 
-5. Only then add the public hostname in the Cloudflare dashboard: `jap.tutorial.monster` to
+5. Only then add the public hostname in the Cloudflare dashboard: `jobs.tutorial.monster` to
    `http://ui:8080`. That is the step that actually puts JAP on the internet, so it goes
    last. Add a Cloudflare rate-limiting rule on `/api/auth/*` at the same time.
 
 6. Add an uptime check from outside — Better Stack and UptimeRobot both do it free — on
-   `https://jap.tutorial.monster/api/health` every five minutes, matching the text
+   `https://jobs.tutorial.monster/api/health` every five minutes, matching the text
    `"ok":true`. This matters more than it looks: every alert JAP sends comes from
    `health-watch` running *inside* the stack, so the one thing it can never tell you about is
    the stack being down. Match on the text rather than the status code, because `/api/health`
